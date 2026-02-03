@@ -10,26 +10,16 @@ ENV CUPS_LOGDIR=/data/cups/logs
 ENV CUPS_STATEDIR=/data/cups/state
 ENV CUPS_SERVERROOT=/data/cups/config
 
-# Setup base system and CUPS with all necessary packages
-RUN \
-    echo "http://dl-cdn.alpinelinux.org/alpine/v$(cat /etc/alpine-release | cut -d'.' -f1,2)/main" > /etc/apk/repositories && \
-    echo "http://dl-cdn.alpinelinux.org/alpine/v$(cat /etc/alpine-release | cut -d'.' -f1,2)/community" >> /etc/apk/repositories && \
-    apk update && \
-    apk add --no-cache \
+# Setup base system and CUPS
+RUN apk add --no-cache \
         cups \
         cups-filters \
         cups-libs \
-        cups-pdf \
         ghostscript \
-        libjpeg-turbo \
-        libpng \
-        net-snmp \
         libusb \
         usbutils \
         wget \
-        jq \
-        poppler-utils \
-        epson-inkjet-printer-escpr
+        jq
 
 # Create PPD directories
 RUN mkdir -p /usr/share/cups/model/dymo \
