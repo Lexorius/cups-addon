@@ -10,7 +10,7 @@ ENV CUPS_LOGDIR=/data/cups/logs
 ENV CUPS_STATEDIR=/data/cups/state
 ENV CUPS_SERVERROOT=/data/cups/config
 
-# Setup base system and CUPS
+# Setup base system and CUPS with all necessary packages
 RUN \
     echo "http://dl-cdn.alpinelinux.org/alpine/v$(cat /etc/alpine-release | cut -d'.' -f1,2)/main" > /etc/apk/repositories && \
     echo "http://dl-cdn.alpinelinux.org/alpine/v$(cat /etc/alpine-release | cut -d'.' -f1,2)/community" >> /etc/apk/repositories && \
@@ -18,59 +18,34 @@ RUN \
     apk add --no-cache \
         cups \
         cups-filters \
-        cups-dev \
         cups-libs \
+        cups-pdf \
         ghostscript \
         libjpeg-turbo \
+        libpng \
         net-snmp \
         libusb \
         usbutils \
-        epson-inkjet-printer-escpr \
-        # Build dependencies for Dymo drivers
-        build-base \
-        git \
-        autoconf \
-        automake \
-        libtool \
-        cups-dev
+        wget \
+        jq \
+        poppler-utils \
+        epson-inkjet-printer-escpr
 
-# Clone and build Dymo CUPS drivers
-RUN cd /tmp && \
-    git clone https://github.com/matthiasbock/dymo-cups-drivers.git && \
-    cd dymo-cups-drivers && \
-    aclocal && \
-    automake --add-missing || true && \
-    autoreconf -i && \
-    ./configure --prefix=/usr && \
-    make && \
-    make install && \
-    # Copy PPD files to CUPS ppd directory
-    mkdir -p /usr/share/ppd/dymo && \
-    cp ppd/*.ppd /usr/share/ppd/dymo/ && \
-    # Cleanup
-    cd / && \
-    rm -rf /tmp/dymo-cups-drivers
+# Create PPD directories
+RUN mkdir -p /usr/share/cups/model/dymo \
+             /usr/share/cups/model/ricoh
 
-# Download Ricoh PPD files from OpenPrinting
-RUN mkdir -p /usr/share/ppd/ricoh && \
-    # Ricoh IM C3000 PPD
-    wget -O /usr/share/ppd/ricoh/Ricoh-IM_C3000-PDF-Ricoh.ppd.gz \
-        "https://www.openprinting.org/ppd-o-matic.php?driver=PDF-Ricoh&printer=Ricoh-IM_C3000&show=0" 2>/dev/null || \
-    wget -O /usr/share/ppd/ricoh/Ricoh-IM_C3000-Postscript.ppd.gz \
-        "https://www.openprinting.org/ppd-o-matic.php?driver=Postscript-Ricoh&printer=Ricoh-IM_C3000&show=0" 2>/dev/null || true && \
-    # Ricoh Aficio MP C3000 PPD (alternative model)
-    wget -O /usr/share/ppd/ricoh/Ricoh-Aficio_MP_C3000-Postscript.ppd.gz \
-        "https://www.openprinting.org/ppd-o-matic.php?driver=Postscript-Ricoh&printer=Ricoh-Aficio_MP_C3000&show=0" 2>/dev/null || true && \
-    # Decompress if gzipped
-    gunzip /usr/share/ppd/ricoh/*.gz 2>/dev/null || true
+# Download Dymo PPD files directly
+RUN wget -q -O /usr/share/cups/model/dymo/lw400.ppd \
+    "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw400.ppd" && \
+    wget -q -O /usr/share/cups/model/dymo/lw450.ppd \
+    "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw450.ppd" && \
+    wget -q -O /usr/share/cups/model/dymo/lw450turbo.ppd \
+    "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw450turbo.ppd" && \
+    echo "Dymo PPD files downloaded"
 
-# Remove build dependencies to reduce image size
-RUN apk del --no-cache \
-        build-base \
-        git \
-        autoconf \
-        automake \
-        libtool
+# Modify Dymo PPDs to use rastertolabel filter (generic CUPS filter)
+RUN sed -i 's|raster2dymolw|rastertolabel|g' /usr/share/cups/model/dymo/*.ppd || true
 
 # Copy data
 COPY rootfs /
