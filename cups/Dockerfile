@@ -21,22 +21,6 @@ RUN apk add --no-cache \
         wget \
         jq
 
-# Create PPD directories
-RUN mkdir -p /usr/share/cups/model/dymo \
-             /usr/share/cups/model/ricoh
-
-# Download Dymo PPD files directly
-RUN wget -q -O /usr/share/cups/model/dymo/lw400.ppd \
-    "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw400.ppd" && \
-    wget -q -O /usr/share/cups/model/dymo/lw450.ppd \
-    "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw450.ppd" && \
-    wget -q -O /usr/share/cups/model/dymo/lw450turbo.ppd \
-    "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw450turbo.ppd" && \
-    echo "Dymo PPD files downloaded"
-
-# Modify Dymo PPDs to use rastertolabel filter (generic CUPS filter)
-RUN sed -i 's|raster2dymolw|rastertolabel|g' /usr/share/cups/model/dymo/*.ppd || true
-
 # Copy data
 COPY rootfs /
 
