@@ -83,6 +83,7 @@ cat > /data/cups/config/cupsd.conf << EOL
 # Server settings
 ServerName localhost
 ServerAdmin root@localhost
+ServerAlias *
 
 # Listen on all interfaces
 Listen 0.0.0.0:631
@@ -94,24 +95,16 @@ WebInterface Yes
 LogLevel warn
 PageLogFormat
 
-# Allow access from local network
+# Allow access from local network and Ingress
 <Location />
   Order allow,deny
-  Allow localhost
-  Allow 10.0.0.0/8
-  Allow 172.16.0.0/12
-  Allow 192.168.0.0/16
-  Allow @LOCAL
+  Allow all
 </Location>
 
 # Admin access
 <Location /admin>
   Order allow,deny
-  Allow localhost
-  Allow 10.0.0.0/8
-  Allow 172.16.0.0/12
-  Allow 192.168.0.0/16
-  Allow @LOCAL
+  Allow all
   AuthType Basic
   Require user @SYSTEM
 </Location>
@@ -121,31 +114,19 @@ PageLogFormat
   AuthType Basic
   Require user @SYSTEM
   Order allow,deny
-  Allow localhost
-  Allow 10.0.0.0/8
-  Allow 172.16.0.0/12
-  Allow 192.168.0.0/16
-  Allow @LOCAL
+  Allow all
 </Location>
 
 # Job management permissions
 <Location /jobs>
   Order allow,deny
-  Allow localhost
-  Allow 10.0.0.0/8
-  Allow 172.16.0.0/12
-  Allow 192.168.0.0/16
-  Allow @LOCAL
+  Allow all
 </Location>
 
 # Printer operations
 <Location /printers>
   Order allow,deny
-  Allow localhost
-  Allow 10.0.0.0/8
-  Allow 172.16.0.0/12
-  Allow 192.168.0.0/16
-  Allow @LOCAL
+  Allow all
 </Location>
 
 # Policy for operations
