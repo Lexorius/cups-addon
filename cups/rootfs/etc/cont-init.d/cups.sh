@@ -18,15 +18,25 @@ chmod -R 775 /data/cups
 mkdir -p /etc/cups
 
 # Copy custom PPD files to persistent storage if not already there
-if [ ! -d "/data/cups/ppd/dymo" ]; then
-    echo "Copying Dymo PPD files to persistent storage..."
+if [ ! -f "/data/cups/ppd/dymo/lw400.ppd" ]; then
+    echo "Downloading Dymo PPD files..."
     mkdir -p /data/cups/ppd/dymo
-    cp /usr/share/cups/model/dymo/*.ppd /data/cups/ppd/dymo/ 2>/dev/null || true
+    wget -q -O /data/cups/ppd/dymo/lw400.ppd \
+        "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw400.ppd" 2>/dev/null || true
+    wget -q -O /data/cups/ppd/dymo/lw450.ppd \
+        "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw450.ppd" 2>/dev/null || true
+    # Modify PPDs to use generic filter
+    sed -i 's|raster2dymolw|rastertolabel|g' /data/cups/ppd/dymo/*.ppd 2>/dev/null || true
+    echo "Dymo PPD files ready"
 fi
+
+# Link PPD directory to CUPS model directory
+mkdir -p /usr/share/cups/model
+ln -sf /data/cups/ppd/dymo /usr/share/cups/model/dymo 2>/dev/null || true
 
 # List available PPD files
 echo "=== Available PPD files ==="
-ls -la /usr/share/cups/model/dymo/ 2>/dev/null || echo "No Dymo PPDs found"
+ls -la /data/cups/ppd/dymo/ 2>/dev/null || echo "No Dymo PPDs found"
 
 # Get admin credentials from options
 if [ -f /data/options.json ]; then
