@@ -1,10 +1,9 @@
 ---
-version: 1.0.0
+version: 1.1.0
 slug: cups
 name: CUPS Print Server
-description: CUPS print server for network printing
-url: https://github.com/arest/cups-addon
-codenotary: andrea_restello@yahoo.it
+description: CUPS print server with USB printer support (Ricoh, Dymo and more)
+url: https://github.com/Lexorius/cups-addon
 arch:
   - armhf
   - armv7
@@ -13,6 +12,15 @@ arch:
   - i386
 hassio_api: true
 host_network: true
+
+# USB-Unterstützung für Drucker
+usb: true
+full_access: true
+
+# Berechtigungen für USB-Geräte
+privileged:
+  - SYS_RAWIO
+
 map:
   - data:rw
   - share:rw
