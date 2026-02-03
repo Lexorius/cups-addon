@@ -20,13 +20,13 @@ mkdir -p /etc/cups
 # Copy custom PPD files to persistent storage if not already there
 if [ ! -d "/data/cups/ppd/dymo" ]; then
     echo "Copying Dymo PPD files to persistent storage..."
-    cp -r /usr/share/ppd/dymo /data/cups/ppd/ 2>/dev/null || true
+    mkdir -p /data/cups/ppd/dymo
+    cp /usr/share/cups/model/dymo/*.ppd /data/cups/ppd/dymo/ 2>/dev/null || true
 fi
 
-if [ ! -d "/data/cups/ppd/ricoh" ]; then
-    echo "Copying Ricoh PPD files to persistent storage..."
-    cp -r /usr/share/ppd/ricoh /data/cups/ppd/ 2>/dev/null || true
-fi
+# List available PPD files
+echo "=== Available PPD files ==="
+ls -la /usr/share/cups/model/dymo/ 2>/dev/null || echo "No Dymo PPDs found"
 
 # Get admin credentials from options
 if [ -f /data/options.json ]; then
