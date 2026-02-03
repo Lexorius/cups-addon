@@ -30,13 +30,28 @@ if [ ! -f "/data/cups/ppd/dymo/lw400.ppd" ]; then
     echo "Dymo PPD files ready"
 fi
 
+# Download Ricoh PPD files
+if [ ! -f "/data/cups/ppd/ricoh/Ricoh_IM_C3000.ppd" ]; then
+    echo "Downloading Ricoh PPD files..."
+    mkdir -p /data/cups/ppd/ricoh
+    # Ricoh IM C3000 - PostScript PPD from OpenPrinting
+    wget -q -O /data/cups/ppd/ricoh/Ricoh_IM_C3000.ppd \
+        "https://www.openprinting.org/ppd-o-matic.php?driver=Postscript&printer=Ricoh-IM_C3000&show=0" 2>/dev/null || true
+    # Ricoh Aficio MP C3000 (alternative/older model)
+    wget -q -O /data/cups/ppd/ricoh/Ricoh_Aficio_MP_C3000.ppd \
+        "https://www.openprinting.org/ppd-o-matic.php?driver=Postscript&printer=Ricoh-Aficio_MP_C3000&show=0" 2>/dev/null || true
+    echo "Ricoh PPD files ready"
+fi
+
 # Link PPD directory to CUPS model directory
 mkdir -p /usr/share/cups/model
 ln -sf /data/cups/ppd/dymo /usr/share/cups/model/dymo 2>/dev/null || true
+ln -sf /data/cups/ppd/ricoh /usr/share/cups/model/ricoh 2>/dev/null || true
 
 # List available PPD files
 echo "=== Available PPD files ==="
 ls -la /data/cups/ppd/dymo/ 2>/dev/null || echo "No Dymo PPDs found"
+ls -la /data/cups/ppd/ricoh/ 2>/dev/null || echo "No Ricoh PPDs found"
 
 # Get admin credentials from options
 if [ -f /data/options.json ]; then
