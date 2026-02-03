@@ -24,8 +24,13 @@ RUN apk add --no-cache \
 # Copy data
 COPY rootfs /
 
+# Make run script executable
+RUN chmod +x /usr/local/bin/run.sh
+
 # Expose CUPS web interface port
 EXPOSE 631
 
 HEALTHCHECK \
     CMD lpstat -r || exit 1
+
+CMD ["/usr/local/bin/run.sh"]
