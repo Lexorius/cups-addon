@@ -81,7 +81,12 @@ ls -la /data/cups/ppd/ricoh/ 2>/dev/null || echo "No Ricoh PPDs found"
 echo "Creating CUPS configuration..."
 cat > /data/cups/config/cupsd.conf << EOL
 # CUPS Configuration for Home Assistant Add-on
-# Generated automatically - manual changes will be overwritten on restart
+# Direct access via host_network + hass_ingress for HA sidebar integration
+#
+# Access:
+#   Direct: http://<HA-IP>:631
+#   Via hass_ingress: configured in HA configuration.yaml
+#   Printing: ipp://<HA-IP>:631/printers/<printer-name>
 
 # Server settings
 ServerName *
@@ -89,10 +94,10 @@ ServerAdmin root@localhost
 ServerAlias *
 HostNameLookups Off
 
-# Listen on all interfaces - HTTP only
+# Listen on all interfaces on port 631
 Port 631
 
-# DISABLE ALL ENCRYPTION - required for Ingress
+# DISABLE ALL ENCRYPTION - required for hass_ingress proxy
 DefaultEncryption Never
 Encryption Never
 
@@ -103,34 +108,52 @@ WebInterface Yes
 LogLevel warn
 PageLogFormat
 
-# Allow access from everywhere (needed for Ingress/Nabu Casa)
+# Allow access from all local networks
 <Location />
   Order allow,deny
-  Allow all
+  Allow from 127.0.0.1
+  Allow from 10.0.0.0/8
+  Allow from 172.16.0.0/12
+  Allow from 192.168.0.0/16
 </Location>
 
-# Admin access - NO AUTHENTICATION for easier access via Ingress
+# Admin access - allow from local networks
 <Location /admin>
   Order allow,deny
-  Allow all
+  Allow from 127.0.0.1
+  Allow from 10.0.0.0/8
+  Allow from 172.16.0.0/12
+  Allow from 192.168.0.0/16
 </Location>
 
-# Admin configuration pages - NO AUTHENTICATION
+# Admin configuration pages
 <Location /admin/conf>
   Order allow,deny
-  Allow all
+  Allow from 127.0.0.1
+  Allow from 10.0.0.0/8
+  Allow from 172.16.0.0/12
+  Allow from 192.168.0.0/16
 </Location>
 
 # Job management permissions
 <Location /jobs>
   Order allow,deny
-  Allow all
+  Allow from 127.0.0.1
+  Allow from 10.0.0.0/8
+  Allow from 172.16.0.0/12
+  Allow from 192.168.0.0/16
 </Location>
 
-# Printer operations
+# Printer operations - allow from all for printing
 <Location /printers>
   Order allow,deny
-  Allow all
+  Allow from all
+</Location>
+
+# IPP printing endpoint - allow from all
+<Location /ipp>
+  Order allow,deny
+  Allow from all
 </Location>
 
 # Policy for operations - allow all without auth
@@ -197,5 +220,7 @@ fi
 # Ensure USB backend has correct permissions
 chmod 755 /usr/lib/cups/backend/usb 2>/dev/null || true
 
-echo "=== Starting CUPS daemon ==="
+echo "=== Starting CUPS daemon on port 631 ==="
+echo "Direct access: http://<HA-IP>:631"
+echo "Printing URL:  ipp://<HA-IP>:631/printers/<printer-name>"
 exec /usr/sbin/cupsd -f
