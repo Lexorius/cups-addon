@@ -19,7 +19,8 @@ RUN apk add --no-cache \
         libusb \
         usbutils \
         wget \
-        jq
+        jq \
+        nginx      
 
 # Copy data
 COPY rootfs /
