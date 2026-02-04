@@ -89,9 +89,12 @@ ServerAdmin root@localhost
 ServerAlias *
 HostNameLookups Off
 
-# Listen on all interfaces
+# Listen on all interfaces - HTTP only
 Port 631
-Listen /run/cups/cups.sock
+
+# DISABLE ALL ENCRYPTION - required for Ingress
+DefaultEncryption Never
+Encryption Never
 
 # Enable web interface
 WebInterface Yes
@@ -106,18 +109,14 @@ PageLogFormat
   Allow all
 </Location>
 
-# Admin access
+# Admin access - NO AUTHENTICATION for easier access via Ingress
 <Location /admin>
   Order allow,deny
   Allow all
-  AuthType Basic
-  Require user @SYSTEM
 </Location>
 
-# Admin configuration pages
+# Admin configuration pages - NO AUTHENTICATION
 <Location /admin/conf>
-  AuthType Basic
-  Require user @SYSTEM
   Order allow,deny
   Allow all
 </Location>
@@ -134,7 +133,7 @@ PageLogFormat
   Allow all
 </Location>
 
-# Policy for operations
+# Policy for operations - allow all without auth
 <Policy default>
   JobPrivateAccess default
   JobPrivateValues default
@@ -143,35 +142,37 @@ PageLogFormat
 
   <Limit Create-Job Print-Job Print-URI Validate-Job>
     Order deny,allow
+    Allow all
   </Limit>
 
   <Limit Send-Document Send-URI Hold-Job Release-Job Restart-Job Purge-Jobs Set-Job-Attributes Create-Job-Subscription Renew-Subscription Cancel-Subscription Get-Notifications Reprocess-Job Cancel-Current-Job Suspend-Current-Job Resume-Job Cancel-My-Jobs Close-Job CUPS-Move-Job CUPS-Get-Document>
     Order deny,allow
+    Allow all
   </Limit>
 
   <Limit CUPS-Add-Modify-Printer CUPS-Delete-Printer CUPS-Add-Modify-Class CUPS-Delete-Class CUPS-Set-Default CUPS-Get-Devices>
-    AuthType Basic
-    Require user @SYSTEM
     Order deny,allow
+    Allow all
   </Limit>
 
   <Limit Pause-Printer Resume-Printer Enable-Printer Disable-Printer Pause-Printer-After-Current-Job Hold-New-Jobs Release-Held-New-Jobs Deactivate-Printer Activate-Printer Restart-Printer Shutdown-Printer Startup-Printer Promote-Job Schedule-Job-After Cancel-Jobs CUPS-Accept-Jobs CUPS-Reject-Jobs>
-    AuthType Basic
-    Require user @SYSTEM
     Order deny,allow
+    Allow all
   </Limit>
 
   <Limit Cancel-Job CUPS-Authenticate-Job>
     Order deny,allow
+    Allow all
   </Limit>
 
   <Limit All>
     Order deny,allow
+    Allow all
   </Limit>
 </Policy>
 
-# Default settings
-DefaultAuthType Basic
+# Default settings - NO AUTHENTICATION
+DefaultAuthType None
 JobSheets none,none
 PreserveJobHistory Off
 PreserveJobFiles Off
@@ -182,7 +183,7 @@ MaxJobsPerUser 25
 FileDevice Yes
 
 # System group for admin access
-SystemGroup lpadmin root
+SystemGroup lpadmin root wheel
 EOL
 
 # Create symlinks from the default config location to our persistent location
@@ -195,10 +196,6 @@ fi
 
 # Ensure USB backend has correct permissions
 chmod 755 /usr/lib/cups/backend/usb 2>/dev/null || true
-
-# Create socket directory
-mkdir -p /run/cups
-chmod 755 /run/cups
 
 echo "=== Starting CUPS daemon ==="
 exec /usr/sbin/cupsd -f
