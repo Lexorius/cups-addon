@@ -1,5 +1,5 @@
 ---
-version: 1.2.3
+version: 1.2.5
 slug: cups
 name: CUPS Print Server
 description: CUPS print server with USB printer support (Ricoh, Dymo and more)
@@ -11,11 +11,12 @@ arch:
   - amd64
   - i386
 hassio_api: true
-host_network: false
+host_network: true
 
 # Web UI in Home Assistant anzeigen
 ingress: true
 ingress_port: 631
+ingress_entry: /admin
 panel_icon: mdi:printer
 panel_title: CUPS Drucker
 
