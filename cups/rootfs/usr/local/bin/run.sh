@@ -220,7 +220,25 @@ fi
 # Ensure USB backend has correct permissions
 chmod 755 /usr/lib/cups/backend/usb 2>/dev/null || true
 
+# Create nginx directories
+mkdir -p /run/nginx
+mkdir -p /var/log/nginx
+
+echo "=== Starting nginx proxy on port 8631 (removes CSP headers for iframe embedding) ==="
+# Test nginx config first
+nginx -t
+if [ $? -eq 0 ]; then
+    nginx
+    echo "nginx started successfully"
+else
+    echo "ERROR: nginx config test failed!"
+fi
+
 echo "=== Starting CUPS daemon on port 631 ==="
-echo "Direct access: http://<HA-IP>:631"
-echo "Printing URL:  ipp://<HA-IP>:631/printers/<printer-name>"
+echo ""
+echo "Access URLs:"
+echo "  Direct (no iframe):  http://<HA-IP>:631"
+echo "  For hass_ingress:    http://<HA-IP>:8631  (CSP headers removed)"
+echo "  Printing (IPP):      ipp://<HA-IP>:631/printers/<printer-name>"
+echo ""
 exec /usr/sbin/cupsd -f
