@@ -84,12 +84,14 @@ cat > /data/cups/config/cupsd.conf << EOL
 # Generated automatically - manual changes will be overwritten on restart
 
 # Server settings
-ServerName localhost
+ServerName *
 ServerAdmin root@localhost
 ServerAlias *
+HostNameLookups Off
 
 # Listen on all interfaces
-Listen 0.0.0.0:631
+Port 631
+Listen /run/cups/cups.sock
 
 # Enable web interface
 WebInterface Yes
@@ -98,7 +100,7 @@ WebInterface Yes
 LogLevel warn
 PageLogFormat
 
-# Allow access from local network and Ingress
+# Allow access from everywhere (needed for Ingress/Nabu Casa)
 <Location />
   Order allow,deny
   Allow all
@@ -193,6 +195,10 @@ fi
 
 # Ensure USB backend has correct permissions
 chmod 755 /usr/lib/cups/backend/usb 2>/dev/null || true
+
+# Create socket directory
+mkdir -p /run/cups
+chmod 755 /run/cups
 
 echo "=== Starting CUPS daemon ==="
 exec /usr/sbin/cupsd -f
