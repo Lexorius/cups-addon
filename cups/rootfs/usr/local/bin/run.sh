@@ -224,6 +224,9 @@ chmod 755 /usr/lib/cups/backend/usb 2>/dev/null || true
 mkdir -p /run/nginx
 mkdir -p /var/log/nginx
 
+# Remove Alpine's default nginx config (may add security headers)
+rm -f /etc/nginx/http.d/default.conf 2>/dev/null
+
 echo "=== Starting nginx proxy on port 8631 (removes CSP headers for iframe embedding) ==="
 # Test nginx config first
 nginx -t
