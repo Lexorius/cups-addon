@@ -2,22 +2,27 @@ ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
 # ==============================================================================
-# CUPS Print Server with Avahi/mDNS support
+# CUPS Print Server with Avahi/mDNS support for Home Assistant
+# Base: Alpine 3.19
 # ==============================================================================
 
-# Install CUPS, drivers, and Avahi for printer discovery
 RUN apk add --no-cache \
+    bash \
+    jq \
+    # CUPS
     cups \
     cups-filters \
     cups-libs \
     cups-client \
     cups-pdf \
-    # Avahi for mDNS/DNS-SD printer advertisement (Bonjour)
+    # Avahi for mDNS/DNS-SD printer advertisement (Bonjour/AirPrint)
     avahi \
     avahi-libs \
     avahi-tools \
-    # DBus (optional, avahi can run without it)
+    # DBus (required by avahi)
     dbus \
+    # Nginx reverse proxy (for hass_ingress CSP header removal)
+    nginx \
     # Printer drivers
     gutenprint \
     gutenprint-cups \
@@ -25,23 +30,28 @@ RUN apk add --no-cache \
     # USB support
     usbutils \
     libusb \
-    # Dymo LabelWriter support
+    # Network tools for debugging
+    wget \
     && mkdir -p /var/run/avahi-daemon \
     && mkdir -p /var/run/dbus \
-    && mkdir -p /etc/avahi/services
+    && mkdir -p /var/run/cups \
+    && mkdir -p /etc/avahi/services \
+    && mkdir -p /run/nginx \
+    && mkdir -p /var/log/nginx \
+    && mkdir -p /var/log/cups
 
-# Install Ricoh PPD files if available
-# (uncomment and adjust if you need specific PPDs)
-# COPY ppd/ /usr/share/cups/model/
+# Copy rootfs overlay (configs, scripts)
+COPY rootfs/ /
 
-# Copy run script
-COPY run.sh /
-RUN chmod a+x /run.sh
+# Make scripts executable
+RUN chmod a+x /etc/cont-init.d/cups.sh
 
-# Expose CUPS port
+# Expose CUPS port and nginx proxy port
 EXPOSE 631/tcp
+EXPOSE 8631/tcp
 
 # Expose Avahi/mDNS port for printer discovery
 EXPOSE 5353/udp
 
-CMD [ "/run.sh" ]
+# Entrypoint
+CMD [ "/etc/cont-init.d/cups.sh" ]
