@@ -7,7 +7,7 @@ FROM ${BUILD_FROM}
 # ==============================================================================
 
 RUN apk add --no-cache \
-    bash \
+    bash \å
     jq \
     # CUPS
     cups \
@@ -16,7 +16,7 @@ RUN apk add --no-cache \
     cups-client \
     cups-pdf \
     # Avahi for mDNS/DNS-SD printer advertisement (Bonjour/AirPrint)
-    avahi \
+    avahi \å
     avahi-libs \
     avahi-tools \
     # DBus (required by avahi)
