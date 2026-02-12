@@ -103,6 +103,10 @@ Encryption Never
 
 # Enable web interface
 WebInterface Yes
+Browsing On
+BrowseLocalProtocols dnssd
+BrowseWebIF Yes
+DefaultShared Yes
 
 # Log settings
 LogLevel warn
