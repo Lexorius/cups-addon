@@ -1,37 +1,47 @@
 ARG BUILD_FROM
-FROM $BUILD_FROM
+FROM ${BUILD_FROM}
 
-# Add env
-ENV LANG=C.UTF-8
-# Set CUPS environment variables for data persistence
-ENV CUPS_DATADIR=/data/cups
-ENV CUPS_CACHEDIR=/data/cups/cache
-ENV CUPS_LOGDIR=/data/cups/logs
-ENV CUPS_STATEDIR=/data/cups/state
-ENV CUPS_SERVERROOT=/data/cups/config
+# ==============================================================================
+# CUPS Print Server with Avahi/mDNS support
+# ==============================================================================
 
-# Setup base system and CUPS
+# Install CUPS, drivers, and Avahi for printer discovery
 RUN apk add --no-cache \
-        cups \
-        cups-filters \
-        cups-libs \
-        ghostscript \
-        libusb \
-        usbutils \
-        wget \
-        jq \
-        nginx      
+    cups \
+    cups-filters \
+    cups-libs \
+    cups-client \
+    cups-pdf \
+    # Avahi for mDNS/DNS-SD printer advertisement (Bonjour)
+    avahi \
+    avahi-libs \
+    avahi-tools \
+    # DBus (optional, avahi can run without it)
+    dbus \
+    # Printer drivers
+    gutenprint \
+    gutenprint-cups \
+    hplip \
+    # USB support
+    usbutils \
+    libusb \
+    # Dymo LabelWriter support
+    && mkdir -p /var/run/avahi-daemon \
+    && mkdir -p /var/run/dbus \
+    && mkdir -p /etc/avahi/services
 
-# Copy data
-COPY rootfs /
+# Install Ricoh PPD files if available
+# (uncomment and adjust if you need specific PPDs)
+# COPY ppd/ /usr/share/cups/model/
 
-# Make run script executable
-RUN chmod +x /usr/local/bin/run.sh
+# Copy run script
+COPY run.sh /
+RUN chmod a+x /run.sh
 
-# Expose CUPS web interface port
-EXPOSE 631
+# Expose CUPS port
+EXPOSE 631/tcp
 
-HEALTHCHECK \
-    CMD lpstat -r || exit 1
+# Expose Avahi/mDNS port for printer discovery
+EXPOSE 5353/udp
 
-CMD ["/usr/local/bin/run.sh"]
+CMD [ "/run.sh" ]
