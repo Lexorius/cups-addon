@@ -3,35 +3,27 @@ FROM ${BUILD_FROM}
 
 # ==============================================================================
 # CUPS Print Server with Avahi/mDNS support for Home Assistant
-# Base: Alpine 3.19
+# Base: Alpine 3.23
 # ==============================================================================
 
+# Core packages: CUPS, Avahi, D-Bus, Nginx, drivers, tools
 RUN apk add --no-cache \
-    bash \å
+    bash \
     jq \
-    # CUPS
+    wget \
     cups \
     cups-filters \
     cups-libs \
     cups-client \
-    cups-pdf \
-    # Avahi for mDNS/DNS-SD printer advertisement (Bonjour/AirPrint)
-    avahi \å
+    avahi \
     avahi-libs \
     avahi-tools \
-    # DBus (required by avahi)
     dbus \
-    # Nginx reverse proxy (for hass_ingress CSP header removal)
     nginx \
-    # Printer drivers
     gutenprint \
-    gutenprint-cups \
     hplip \
-    # USB support
     usbutils \
     libusb \
-    # Network tools for debugging
-    wget \
     && mkdir -p /var/run/avahi-daemon \
     && mkdir -p /var/run/dbus \
     && mkdir -p /var/run/cups \
