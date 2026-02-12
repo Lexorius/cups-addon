@@ -1,5 +1,5 @@
 ---
-version: 1.5.8
+version: 1.5.9
 slug: cups
 name: CUPS Print Server
 description: CUPS print server with USB printer support (Ricoh, Dymo and more)
@@ -33,9 +33,11 @@ init: false
 ports:
   631/tcp: 631
   8631/tcp: 8631
+  5353/udp: 5353
 ports_description:
   631/tcp: CUPS direct access and IPP printing
   8631/tcp: Web interface for hass_ingress (CSP headers removed)
+  5353/udp: Avahi/mDNS for automatic printer discovery (Bonjour/AirPrint)
 options:
   admin_username: "admin"
   admin_password: "admin"
