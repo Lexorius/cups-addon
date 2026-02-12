@@ -1,91 +1,75 @@
-#!/bin/sh
+#!/usr/bin/env bashio
+# ==============================================================================
+# Home Assistant CUPS Add-on: run.sh
+# Enhanced with Avahi/mDNS support and printer sharing
+# ==============================================================================
 
-echo "=== CUPS Print Server Initialization ==="
+# --- Configuration from HA Add-on options ---
+ADMIN_USERNAME=$(bashio::config 'admin_username' 'admin')
+ADMIN_PASSWORD=$(bashio::config 'admin_password' 'password')
 
-# Create CUPS data directories for persistence
-echo "Creating CUPS data directories..."
-mkdir -p /data/cups/cache
-mkdir -p /data/cups/logs
-mkdir -p /data/cups/state
-mkdir -p /data/cups/config
-mkdir -p /data/cups/ppd
+# --- Persistent data directories ---
+DATA_DIR="/data/cups"
+CUPS_CONF_DIR="${DATA_DIR}/config"
+CUPS_CACHE_DIR="${DATA_DIR}/cache"
+CUPS_LOG_DIR="${DATA_DIR}/logs"
+CUPS_STATE_DIR="${DATA_DIR}/state"
+CUPS_PPD_DIR="${DATA_DIR}/ppd"
 
-# Set proper permissions
-chown -R root:lp /data/cups 2>/dev/null || true
-chmod -R 775 /data/cups
+bashio::log.info "============================================"
+bashio::log.info " CUPS Print Server Add-on (with Avahi)"
+bashio::log.info "============================================"
 
-# Create CUPS configuration directory if it doesn't exist
-mkdir -p /etc/cups
+# --- Create persistent directories ---
+mkdir -p "${CUPS_CONF_DIR}" "${CUPS_CACHE_DIR}" "${CUPS_LOG_DIR}" "${CUPS_STATE_DIR}" "${CUPS_PPD_DIR}"
 
-# Get admin credentials from options
-if [ -f /data/options.json ]; then
-    ADMIN_USER=$(cat /data/options.json | jq -r '.admin_username // "admin"')
-    ADMIN_PASS=$(cat /data/options.json | jq -r '.admin_password // "admin"')
+# --- Symlink persistent dirs into CUPS paths ---
+# Config
+if [ ! -L /etc/cups ] && [ -d /etc/cups ]; then
+    # First run: copy default config, then symlink
+    cp -rn /etc/cups/* "${CUPS_CONF_DIR}/" 2>/dev/null || true
+    rm -rf /etc/cups
+fi
+ln -sf "${CUPS_CONF_DIR}" /etc/cups
+
+# Cache
+rm -rf /var/cache/cups
+ln -sf "${CUPS_CACHE_DIR}" /var/cache/cups
+
+# Logs
+rm -rf /var/log/cups
+ln -sf "${CUPS_LOG_DIR}" /var/log/cups
+
+# State (spool)
+mkdir -p "${CUPS_STATE_DIR}/spool"
+rm -rf /var/spool/cups
+ln -sf "${CUPS_STATE_DIR}/spool" /var/spool/cups
+
+# PPD
+mkdir -p /etc/cups/ppd 2>/dev/null || true
+if [ -d "${CUPS_PPD_DIR}" ] && [ "$(ls -A ${CUPS_PPD_DIR})" ]; then
+    cp -rn "${CUPS_PPD_DIR}"/* /etc/cups/ppd/ 2>/dev/null || true
+fi
+
+# --- Set admin user credentials ---
+bashio::log.info "Setting up admin user: ${ADMIN_USERNAME}"
+if id "${ADMIN_USERNAME}" &>/dev/null; then
+    echo "${ADMIN_USERNAME}:${ADMIN_PASSWORD}" | chpasswd
 else
-    ADMIN_USER="admin"
-    ADMIN_PASS="admin"
+    adduser -D -G lpadmin "${ADMIN_USERNAME}" 2>/dev/null || true
+    echo "${ADMIN_USERNAME}:${ADMIN_PASSWORD}" | chpasswd
 fi
+# Ensure admin user is in lpadmin group
+addgroup "${ADMIN_USERNAME}" lpadmin 2>/dev/null || true
 
-# Create lpadmin group if not exists
-addgroup -S lpadmin 2>/dev/null || true
-
-# Create admin user for CUPS
-echo "Setting up admin user: ${ADMIN_USER}"
-adduser -D -G lpadmin "${ADMIN_USER}" 2>/dev/null || true
-adduser "${ADMIN_USER}" lp 2>/dev/null || true
-echo "${ADMIN_USER}:${ADMIN_PASS}" | chpasswd 2>/dev/null || true
-
-# Copy custom PPD files to persistent storage if not already there
-if [ ! -f "/data/cups/ppd/dymo/lw400.ppd" ]; then
-    echo "Downloading Dymo PPD files..."
-    mkdir -p /data/cups/ppd/dymo
-    wget -q -O /data/cups/ppd/dymo/lw400.ppd \
-        "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw400.ppd" 2>/dev/null || true
-    wget -q -O /data/cups/ppd/dymo/lw450.ppd \
-        "https://raw.githubusercontent.com/matthiasbock/dymo-cups-drivers/master/ppd/lw450.ppd" 2>/dev/null || true
-    # Modify PPDs to use generic filter
-    sed -i 's|raster2dymolw|rastertolabel|g' /data/cups/ppd/dymo/*.ppd 2>/dev/null || true
-    echo "Dymo PPD files ready"
-fi
-
-# Download Ricoh PPD files
-if [ ! -f "/data/cups/ppd/ricoh/Ricoh_IM_C3000.ppd" ]; then
-    echo "Downloading Ricoh PPD files..."
-    mkdir -p /data/cups/ppd/ricoh
-    # Ricoh IM C3000 - PostScript PPD from OpenPrinting
-    wget -q -O /data/cups/ppd/ricoh/Ricoh_IM_C3000.ppd \
-        "https://www.openprinting.org/ppd-o-matic.php?driver=Postscript&printer=Ricoh-IM_C3000&show=0" 2>/dev/null || true
-    # Ricoh Aficio MP C3000 (alternative/older model)
-    wget -q -O /data/cups/ppd/ricoh/Ricoh_Aficio_MP_C3000.ppd \
-        "https://www.openprinting.org/ppd-o-matic.php?driver=Postscript&printer=Ricoh-Aficio_MP_C3000&show=0" 2>/dev/null || true
-    echo "Ricoh PPD files ready"
-fi
-
-# Link PPD directory to CUPS model directory
-mkdir -p /usr/share/cups/model
-ln -sf /data/cups/ppd/dymo /usr/share/cups/model/dymo 2>/dev/null || true
-ln -sf /data/cups/ppd/ricoh /usr/share/cups/model/ricoh 2>/dev/null || true
-
-# List USB devices for debugging
-echo "=== Detected USB Devices ==="
-lsusb 2>/dev/null || echo "lsusb not available"
-echo "=== USB Printer Devices ==="
-ls -la /dev/usb/lp* 2>/dev/null || echo "No USB printer devices found at /dev/usb/"
-
-# List available PPD files
-echo "=== Available PPD files ==="
-ls -la /data/cups/ppd/dymo/ 2>/dev/null || echo "No Dymo PPDs found"
-ls -la /data/cups/ppd/ricoh/ 2>/dev/null || echo "No Ricoh PPDs found"
-
-# Basic CUPS configuration
-echo "Creating CUPS configuration..."
-cat > /data/cups/config/cupsd.conf << EOL
+# --- Write cupsd.conf ---
+bashio::log.info "Writing CUPS configuration..."
+cat > /etc/cups/cupsd.conf <<'CUPSCONF'
 # CUPS Configuration for Home Assistant Add-on
-# Direct access via host_network + hass_ingress for HA sidebar integration
+# With Avahi/mDNS support and printer sharing enabled
 #
 # Access:
 #   Direct: http://<HA-IP>:631
-#   Via hass_ingress: configured in HA configuration.yaml
 #   Printing: ipp://<HA-IP>:631/printers/<printer-name>
 
 # Server settings
@@ -103,6 +87,10 @@ Encryption Never
 
 # Enable web interface
 WebInterface Yes
+
+# =============================================
+# PRINTER SHARING / BROWSING
+# =============================================
 Browsing On
 BrowseLocalProtocols dnssd
 BrowseWebIF Yes
@@ -211,41 +199,144 @@ FileDevice Yes
 
 # System group for admin access
 SystemGroup lpadmin root wheel
-EOL
+CUPSCONF
 
-# Create symlinks from the default config location to our persistent location
-ln -sf /data/cups/config/cupsd.conf /etc/cups/cupsd.conf
+bashio::log.info "cupsd.conf written successfully."
 
-# Only create printers.conf symlink if file exists
-if [ -f /data/cups/config/printers.conf ]; then
-    ln -sf /data/cups/config/printers.conf /etc/cups/printers.conf
-fi
+# ==============================================================================
+# AVAHI / mDNS SETUP
+# ==============================================================================
+setup_avahi() {
+    bashio::log.info "Setting up Avahi daemon for mDNS/DNS-SD printer discovery..."
 
-# Ensure USB backend has correct permissions
-chmod 755 /usr/lib/cups/backend/usb 2>/dev/null || true
+    # Create required directories
+    mkdir -p /var/run/avahi-daemon
+    mkdir -p /etc/avahi/services
 
-# Create nginx directories
-mkdir -p /run/nginx
-mkdir -p /var/log/nginx
+    # Determine hostname
+    HOSTNAME=$(hostname)
+    bashio::log.info "Using hostname: ${HOSTNAME}"
 
-# Remove Alpine's default nginx config (may add security headers)
-rm -f /etc/nginx/http.d/default.conf 2>/dev/null
+    # Write avahi-daemon.conf
+    cat > /etc/avahi/avahi-daemon.conf <<AVAHICONF
+[server]
+host-name=${HOSTNAME}
+domain-name=local
+use-ipv4=yes
+use-ipv6=yes
+allow-interfaces=eth0,end0,wlan0,enp0s3
+enable-dbus=no
+ratelimit-interval-usec=1000000
+ratelimit-burst=1000
 
-echo "=== Starting nginx proxy on port 8631 (removes CSP headers for iframe embedding) ==="
-# Test nginx config first
-nginx -t
-if [ $? -eq 0 ]; then
-    nginx
-    echo "nginx started successfully"
-else
-    echo "ERROR: nginx config test failed!"
-fi
+[wide-area]
+enable-wide-area=yes
 
-echo "=== Starting CUPS daemon on port 631 ==="
-echo ""
-echo "Access URLs:"
-echo "  Direct (no iframe):  http://<HA-IP>:631"
-echo "  For hass_ingress:    http://<HA-IP>:8631  (CSP headers removed)"
-echo "  Printing (IPP):      ipp://<HA-IP>:631/printers/<printer-name>"
-echo ""
-exec /usr/sbin/cupsd -f
+[publish]
+publish-hinfo=no
+publish-workstation=no
+publish-addresses=yes
+publish-domain=yes
+publish-aaaa-on-ipv4=yes
+publish-a-on-ipv6=no
+
+[reflector]
+enable-reflector=no
+
+[rlimits]
+rlimit-core=0
+rlimit-data=4194304
+rlimit-fstack=4194304
+rlimit-nofile=768
+rlimit-nproc=3
+AVAHICONF
+
+    bashio::log.info "Avahi configuration written."
+}
+
+start_avahi() {
+    if command -v avahi-daemon &>/dev/null; then
+        bashio::log.info "Starting Avahi daemon..."
+
+        # Kill any existing instance
+        killall avahi-daemon 2>/dev/null || true
+        sleep 1
+
+        # Start avahi-daemon in background (no D-Bus mode)
+        avahi-daemon --no-rlimits --daemonize 2>/dev/null
+
+        if [ $? -eq 0 ]; then
+            bashio::log.info "Avahi daemon started successfully."
+            bashio::log.info "Printers will be advertised via mDNS/DNS-SD (Bonjour)."
+        else
+            bashio::log.warning "Avahi daemon failed to start. Printers will NOT be auto-discoverable."
+            bashio::log.warning "Clients can still print manually via ipp://<HA-IP>:631/printers/<name>"
+
+            # Try alternative: run in foreground without daemonize
+            bashio::log.info "Attempting Avahi in no-drop-root mode..."
+            avahi-daemon --no-rlimits --no-drop-root --daemonize 2>/dev/null || \
+                bashio::log.warning "Avahi could not start in any mode."
+        fi
+    else
+        bashio::log.warning "Avahi daemon not installed! Printers will NOT be auto-discoverable."
+        bashio::log.warning "Install avahi-daemon in Dockerfile to enable mDNS."
+    fi
+}
+
+# ==============================================================================
+# ENABLE SHARING ON ALL EXISTING PRINTERS
+# ==============================================================================
+enable_printer_sharing() {
+    bashio::log.info "Enabling sharing on all configured printers..."
+    sleep 2  # Wait for cupsd to be ready
+
+    # Get list of all printers
+    PRINTERS=$(lpstat -p 2>/dev/null | awk '{print $2}')
+
+    if [ -z "${PRINTERS}" ]; then
+        bashio::log.info "No printers configured yet. New printers will be shared by default (DefaultShared Yes)."
+        return
+    fi
+
+    for PRINTER in ${PRINTERS}; do
+        bashio::log.info "Enabling sharing for printer: ${PRINTER}"
+        lpadmin -p "${PRINTER}" -o printer-is-shared=true 2>/dev/null || \
+            bashio::log.warning "Could not enable sharing for ${PRINTER}"
+    done
+
+    bashio::log.info "Printer sharing enabled."
+}
+
+# ==============================================================================
+# MAIN STARTUP SEQUENCE
+# ==============================================================================
+
+# 1. Setup and start Avahi
+setup_avahi
+start_avahi
+
+# 2. Start CUPS daemon
+bashio::log.info "Starting CUPS daemon..."
+cupsd -f &
+CUPSD_PID=$!
+bashio::log.info "CUPS daemon started (PID: ${CUPSD_PID})"
+
+# 3. Enable sharing on existing printers (in background, waits for cupsd)
+(
+    sleep 3
+    enable_printer_sharing
+
+    # Also explicitly enable sharing via cupsctl
+    cupsctl --share-printers 2>/dev/null || true
+    bashio::log.info "cupsctl --share-printers executed."
+) &
+
+bashio::log.info "============================================"
+bashio::log.info " CUPS is running on port 631"
+bashio::log.info " Web UI: http://<HA-IP>:631"
+bashio::log.info " Admin:  http://<HA-IP>:631/admin"
+bashio::log.info " Avahi:  $(command -v avahi-daemon &>/dev/null && echo 'ACTIVE' || echo 'NOT AVAILABLE')"
+bashio::log.info "============================================"
+
+# Wait for CUPS process
+wait ${CUPSD_PID}
