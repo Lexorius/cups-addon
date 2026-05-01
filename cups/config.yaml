@@ -1,8 +1,11 @@
 ---
-version: 1.6.2
+version: "2.0.0"
 slug: cups
 name: CUPS Print Server
-description: CUPS print server with USB printer support (Ricoh, Dymo and more)
+description: >-
+  CUPS Print Server with full driver stack for Raspberry Pi 4 (aarch64/armv7)
+  and persistent printer configuration. Supports USB and network printers,
+  AirPrint via Avahi/mDNS, and integration with hass_ingress.
 url: https://github.com/Lexorius/cups-addon
 arch:
   - armhf
@@ -12,36 +15,47 @@ arch:
   - i386
 hassio_api: true
 
-# Host network for printer accessibility from local network
+# Host network so printers are reachable on the LAN and Avahi/mDNS can broadcast
 host_network: true
 
-# No internal ingress - use hass_ingress integration instead
+# No internal ingress — use hass_ingress (HACS) instead
 ingress: false
 
-# USB support for printers
+# USB support for direct-attached printers
 usb: true
 full_access: true
 
-# Permissions for USB devices
+# Permissions for raw USB access
 privileged:
   - SYS_RAWIO
+  - SYS_ADMIN
 
+# Persistent storage
 map:
   - data:rw
   - share:rw
+
 init: false
+startup: services
+
 ports:
   631/tcp: 631
   8631/tcp: 8631
   5353/udp: 5353
+
 ports_description:
-  631/tcp: CUPS direct access and IPP printing
-  8631/tcp: Web interface for hass_ingress (CSP headers removed)
-  5353/udp: Avahi/mDNS for automatic printer discovery (Bonjour/AirPrint)
+  631/tcp: CUPS web UI and IPP printing
+  8631/tcp: Reverse-proxied web UI for hass_ingress (CSP/X-Frame headers stripped)
+  5353/udp: Avahi/mDNS for AirPrint / Bonjour discovery
+
 options:
   admin_username: "admin"
-  admin_password: "admin"
+  admin_password: "changeme"
+  log_level: "warn"
+  reset_config: false
+
 schema:
   admin_username: str
   admin_password: password
-startup: services
+  log_level: list(debug2|debug|info|warn|error|none)
+  reset_config: bool

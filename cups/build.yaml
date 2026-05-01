@@ -1,6 +1,13 @@
+---
 build_from:
   armhf: docker.io/library/alpine:3.23
   armv7: docker.io/library/alpine:3.23
   aarch64: docker.io/library/alpine:3.23
   amd64: docker.io/library/alpine:3.23
   i386: docker.io/library/alpine:3.23
+
+labels:
+  org.opencontainers.image.title: "CUPS Print Server"
+  org.opencontainers.image.description: "CUPS print server for Home Assistant with full ARM driver stack"
+  org.opencontainers.image.source: "https://github.com/Lexorius/cups-addon"
+  org.opencontainers.image.licenses: "Apache-2.0"

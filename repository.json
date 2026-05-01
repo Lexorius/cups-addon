@@ -1,7 +1,5 @@
 {
-  "name": "CUPS Add-ons fork",
+  "name": "Lexorius CUPS Add-on",
   "url": "https://github.com/Lexorius/cups-addon",
-  "maintainer": "Andrea Restello <andrea_restello@yahoo.it>",
-  "maintainer": "lexorius"
-  
+  "maintainer": "Lexorius (fork of Andrea Restello)"
 }

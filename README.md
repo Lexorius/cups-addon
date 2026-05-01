@@ -1,81 +1,100 @@
 # Home Assistant CUPS Print Server Add-on
 
-[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](https://github.com/Lexorius/cups-addon)
-[![Supports aarch64 Architecture](https://img.shields.io/badge/aarch64-yes-green.svg)](https://github.com/Lexorius/cups-addon)
-[![Supports amd64 Architecture](https://img.shields.io/badge/amd64-yes-green.svg)](https://github.com/Lexorius/cups-addon)
-[![Supports armhf Architecture](https://img.shields.io/badge/armhf-yes-green.svg)](https://github.com/Lexorius/cups-addon)
-[![Supports armv7 Architecture](https://img.shields.io/badge/armv7-yes-green.svg)](https://github.com/Lexorius/cups-addon)
-[![Supports i386 Architecture](https://img.shields.io/badge/i386-yes-green.svg)](https://github.com/Lexorius/cups-addon)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Lexorius/cups-addon)
+[![aarch64](https://img.shields.io/badge/aarch64-yes-green.svg)](#)
+[![armv7](https://img.shields.io/badge/armv7-yes-green.svg)](#)
+[![armhf](https://img.shields.io/badge/armhf-yes-green.svg)](#)
+[![amd64](https://img.shields.io/badge/amd64-yes-green.svg)](#)
+[![i386](https://img.shields.io/badge/i386-yes-green.svg)](#)
 
-This Home Assistant add-on provides a CUPS (Common Unix Printing System) print server with **USB printer support** and pre-installed drivers for popular printer brands.
+A CUPS print server add-on for Home Assistant with a **persistent** printer
+configuration and a **comprehensive driver stack** that works out of the box
+on a Raspberry Pi 4.
+
+> **v2.0.0 highlights** — Printer setup now survives restarts (the v1.x
+> persistence bug is fixed) and the driver stack covers Gutenprint, Foomatic,
+> HPLIP, brlaser, splix, ptouch and IPP Everywhere on aarch64 / armv7.
 
 ## Features
 
-- **USB Printer Support**: Direct support for USB printers connected to your Home Assistant host
-- **Network Printing**: Share printers across your local network using CUPS/IPP
-- **Web Interface**: Access the CUPS administration panel at `http://<your-ha-ip>:631`
-- **hass_ingress Integration**: Integrate CUPS into Home Assistant sidebar
-- **Pre-installed Drivers**:
-  - **Dymo LabelWriter** (400, 450, etc.)
-  - **Ricoh** (IM C3000, Aficio MP C3000)
-  - Generic PostScript and PCL drivers
-- **Lightweight**: Built on Alpine Linux for minimal resource usage
-- **Data Persistence**: Printer settings persist across restarts
+- **Persistent printer configuration** — printers, PPDs, queues and job
+  history all live in `/data/cups/` and survive restarts and updates.
+- **USB printer support** — direct passthrough of USB printers from the HA
+  host.
+- **Network printing & sharing** — IPP, LPD and HTTP available on the LAN.
+- **AirPrint / Bonjour** via Avahi/mDNS.
+- **Web interface** at `http://<HA-IP>:631`.
+- **hass_ingress integration** via reverse proxy on port 8631 (CSP headers
+  stripped).
+- **Drivers preinstalled (and verified on Raspberry Pi 4):**
+  - Gutenprint (Epson, Canon, HP, Lexmark, ESC/P, PCL …)
+  - Foomatic database (10 000+ printer PPDs)
+  - HPLIP (HP)
+  - Brother laser (`brlaser`)
+  - Samsung / Xerox / Dell (`splix`)
+  - Brother / Dymo / Zebra label printers (`ptouch`, `zedonk`)
+  - IPP Everywhere — driverless printing for any modern network printer
 
 ## Installation
 
-### From Home Assistant Add-on Store
+1. **Settings → Add-ons → Add-on Store**
+2. ⋮ menu → **Repositories** → add `https://github.com/Lexorius/cups-addon`
+3. Install **CUPS Print Server**, set a real admin password in
+   *Configuration*, then **Start**.
+4. Open `http://<HA-IP>:631`.
 
-1. Navigate to your Home Assistant instance
-2. Go to **Settings** → **Add-ons** → **Add-on Store**
-3. Click the 3-dot menu in the top right corner and select **Repositories**
-4. Add `https://github.com/Lexorius/cups-addon` as a repository
-5. Find the "CUPS Print Server" add-on in the store and click it
-6. Click **Install**
+## Add-on options
 
-## Access
+| Option           | Default     | Description                                                       |
+| ---------------- | ----------- | ----------------------------------------------------------------- |
+| `admin_username` | `admin`     | Username for the CUPS admin login.                                |
+| `admin_password` | `changeme`  | **Change this!** Required for adding/modifying printers.          |
+| `log_level`      | `warn`      | `debug2 \| debug \| info \| warn \| error \| none`.               |
+| `reset_config`   | `false`     | Wipes `/data/cups/etc` on next boot (use only for recovery).      |
 
-After starting the add-on:
+## Adding a printer
 
-| Type | URL |
-|------|-----|
-| Web Interface | `http://<your-ha-ip>:631` |
-| Admin Panel | `http://<your-ha-ip>:631/admin` |
-| IPP Printing | `ipp://<your-ha-ip>:631/printers/<printer-name>` |
+### USB
+1. Plug the printer into the HA host.
+2. Restart the add-on so it can enumerate USB devices (the boot log shows
+   `lsusb` output).
+3. `http://<HA-IP>:631/admin` → **Add Printer** → pick the USB device.
 
-## Home Assistant Sidebar Integration (hass_ingress)
+### Network (IPP / Socket / LPD)
+1. `http://<HA-IP>:631/admin` → **Add Printer**.
+2. For modern printers, select **IPP Everywhere** to get driverless setup —
+   no PPD needed.
+3. Otherwise pick the matching driver from Gutenprint / Foomatic / HPLIP.
 
-To integrate CUPS into your Home Assistant sidebar, install the [hass_ingress](https://github.com/lovelylain/hass_ingress) integration via HACS.
+### Custom PPDs
+Drop your `.ppd` file into `/data/cups/ppd-extra/` (visible in
+*Studio Code Server* / *File Editor* under `addon_configs/local_cups` or via
+the Samba share). The new PPD shows up under the **extra** vendor in CUPS.
 
-Then add this to your `configuration.yaml`:
+## Printing from clients
+
+| OS      | How to add the queue                                                       |
+| ------- | --------------------------------------------------------------------------- |
+| Windows | Settings → Printers → *Add printer using TCP/IP* → `http://<HA-IP>:631/printers/<name>` |
+| macOS   | System Settings → Printers → IP tab → IPP → `<HA-IP>` → queue `printers/<name>` |
+| Linux   | `lpadmin -p MyPrinter -E -v ipp://<HA-IP>:631/printers/<name>`             |
+| iOS / iPadOS | Auto-discovered via AirPrint when Avahi is up                          |
+
+## hass_ingress (sidebar) integration
+
+Install [hass_ingress](https://github.com/lovelylain/hass_ingress) via HACS,
+then add to `configuration.yaml`:
 
 ```yaml
 ingress:
   cups:
     title: CUPS Drucker
     icon: mdi:printer
-    url: http://<HA-IP>:631
-    rewrite:
-      # Rewrite absolute URLs in CUPS responses
-      - mode: body
-        match: 'href="/'
-        replace: 'href="$http_x_ingress_path/'
-      - mode: body
-        match: 'action="/'
-        replace: 'action="$http_x_ingress_path/'
-      - mode: body
-        match: 'src="/'
-        replace: 'src="$http_x_ingress_path/'
+    # Use the proxy port — CSP headers are stripped here so the iframe works
+    url: http://<HA-IP>:8631
 ```
 
-**Replace `<HA-IP>` with your Home Assistant IP address** (e.g., `192.168.1.100`).
-
-After adding, restart Home Assistant or reload INGRESS from Developer Tools → YAML.
-
-### Alternative: Auth Mode
-
-If URL rewriting doesn't work perfectly, use auth mode:
-
+If you still see layout glitches, fall back to:
 ```yaml
 ingress:
   cups:
@@ -85,89 +104,48 @@ ingress:
     url: http://<HA-IP>:631
 ```
 
-## Adding Printers
+## Persistent storage layout
 
-### USB Printer
-
-1. Connect your USB printer to the Home Assistant host
-2. Go to `http://<your-ha-ip>:631/admin`
-3. Click **Add Printer**
-4. Select your USB printer from the list
-5. Choose the appropriate driver
-
-### Network Printer
-
-1. Go to `http://<your-ha-ip>:631/admin`
-2. Click **Add Printer**
-3. Enter the printer's address (IPP, Socket, LPD)
-4. Select the appropriate driver
-
-## Printing from Network Clients
-
-### Windows
-1. Settings → Printers & Scanners → Add Printer
-2. "Add a printer using TCP/IP address"
-3. Enter: `http://<your-ha-ip>:631/printers/<printer-name>`
-
-### macOS
-1. System Preferences → Printers & Scanners
-2. Click "+" → IP tab
-3. Protocol: Internet Printing Protocol (IPP)
-4. Address: `<your-ha-ip>:631`
-5. Queue: `printers/<printer-name>`
-
-### Linux
-```bash
-lpadmin -p MyPrinter -E -v ipp://<your-ha-ip>:631/printers/<printer-name>
+```
+/data/cups/
+├── etc/          ← bind-replaces /etc/cups (printers.conf, *.ppd, …)
+├── spool/        ← print queue
+├── cache/        ← CUPS cache
+├── logs/         ← access_log, error_log, page_log
+└── ppd-extra/    ← drop your own PPDs here
 ```
 
-## Configuration
-
-```yaml
-admin_username: admin
-admin_password: your_secure_password
-```
-
-## Supported Printers
-
-| Brand | Models |
-|-------|--------|
-| Dymo | LabelWriter 400, 450, 4XL |
-| Ricoh | IM C3000, Aficio MP C3000 |
-| Generic | PostScript, PCL, IPP Everywhere |
-
-Additional PPD files: https://www.openprinting.org/drivers/
+If you ever need to start fresh, set `reset_config: true` once and restart.
 
 ## Troubleshooting
 
-### USB Printer Not Detected
-- Check add-on logs for USB device detection
-- Verify printer appears in `lsusb` output
-- Restart add-on after connecting printer
+**Printer is gone after a restart.** This was the v1.x bug. Update to
+v2.0.0 and re-add the printer once — it will stick from then on. If it
+*still* disappears, check that `/data/cups/etc` exists and is writable:
+```bash
+ha addons logs cups | grep -i persistent
+```
 
-### hass_ingress Shows Broken Layout
-- Use direct access for admin tasks: `http://<HA-IP>:631`
-- Try `work_mode: auth` instead of URL rewriting
-- CUPS generates many absolute URLs that may not all be rewritten
+**USB printer not detected.** The add-on logs `lsusb` and `/dev/usb/lp*` at
+boot. If your printer is not in either list, the HA host itself can't see it
+— check kernel modules (`usblp`) and cabling, and restart the add-on after
+plugging it in.
 
-### Printer Not Accessible from Network
-- Verify `host_network: true` in add-on config
-- Check firewall allows port 631
-- Ensure client is on same network
+**hass_ingress shows broken layout.** Use port `8631` (the proxy) instead
+of `631`. The proxy strips CSP/X-Frame headers; raw CUPS doesn't.
 
-## Data Persistence
-
-All CUPS data is stored in `/data/cups/`:
-- `config/` - Configuration files
-- `ppd/` - Custom PPD files
-- `cache/`, `logs/`, `state/`
-
-## License
-
-Apache License 2.0
+**Avahi shows `INACTIVE` in the boot log.** Printing still works manually
+via `ipp://<HA-IP>:631/printers/<name>`. AirPrint discovery requires
+Avahi — check that port 5353/UDP isn't blocked and `host_network` is `true`.
 
 ## Credits
 
 - Original add-on by [Andrea Restello](https://github.com/arest)
-- USB and driver enhancements by [Lexorius](https://github.com/Lexorius)
-- Powered by [Home Assistant](https://www.home-assistant.io/) and [CUPS](https://www.cups.org/)
+- USB and driver enhancements + persistence overhaul by
+  [Lexorius](https://github.com/Lexorius)
+- Built on [CUPS](https://www.cups.org/), [Gutenprint](http://gimp-print.sourceforge.net/),
+  [Foomatic](https://www.openprinting.org/foomatic) and Alpine Linux.
+
+## License
+
+Apache License 2.0
