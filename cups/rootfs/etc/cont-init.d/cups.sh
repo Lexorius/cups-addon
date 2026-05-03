@@ -1,15 +1,18 @@
 #!/bin/bash
 # ==============================================================================
-# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.0)
+# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.1)
 #
-# Key changes vs. v1.x
-#   * /etc/cups is FULLY persisted to /data/cups/etc (not just cupsd.conf).
-#     This is what made printers disappear on restart in earlier versions:
-#     CUPS writes printers.conf, ppd/*.ppd, subscriptions.conf, classes.conf
-#     into /etc/cups, which is part of the container layer (volatile).
-#   * cupsd.conf is only seeded on first run; user changes are preserved.
-#   * Optional `reset_config: true` add-on option performs a clean re-seed.
-#   * Drivers installed by Dockerfile cover Raspberry Pi 4 (aarch64/armv7).
+# Fixes vs. 2.0.0
+#   * cupsd was listening only on localhost after first boot, because the
+#     Alpine package default cupsd.conf got copied into /data/cups/etc/ during
+#     seeding and then the "only write if empty"-guard skipped the override.
+#     We now always (re-)write cupsd.conf on first seed, and we use `Port 631`
+#     instead of `Listen 0.0.0.0:631` so CUPS' own config rewrites can't break
+#     external reachability later.
+#   * Migration path from v1.x: /data/cups/config/  ->  /data/cups/etc/.
+#     Existing printers from v1 are imported on first v2 boot.
+#   * Sanity check after start: log a clear error if cupsd is not listening on
+#     all interfaces, so this class of bug can't hide silently again.
 # ==============================================================================
 set -eu
 
@@ -21,7 +24,7 @@ log_warning() { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 log_error()   { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 log_info "============================================"
-log_info " CUPS Print Server Add-on  v2.0.0"
+log_info " CUPS Print Server Add-on  v2.0.1"
 log_info " Persistent config + ARM driver stack"
 log_info "============================================"
 
@@ -49,13 +52,6 @@ log_info "Reset on boot:     ${RESET_CONFIG}"
 
 # ------------------------------------------------------------------------------
 # 2. Persistent storage layout
-#
-#    /data/cups/
-#      ├─ etc/          → bind-replaces /etc/cups        (THE fix for printers)
-#      ├─ spool/        → bind-replaces /var/spool/cups  (print queue)
-#      ├─ cache/        → bind-replaces /var/cache/cups
-#      ├─ logs/         → bind-replaces /var/log/cups
-#      └─ ppd-extra/    → user-supplied PPDs, linked into /usr/share/cups/model
 # ------------------------------------------------------------------------------
 DATA_ROOT="/data/cups"
 PERSIST_ETC="${DATA_ROOT}/etc"
@@ -63,6 +59,10 @@ PERSIST_SPOOL="${DATA_ROOT}/spool"
 PERSIST_CACHE="${DATA_ROOT}/cache"
 PERSIST_LOGS="${DATA_ROOT}/logs"
 PERSIST_PPD_EXTRA="${DATA_ROOT}/ppd-extra"
+
+# v1.x location (for migration only)
+LEGACY_V1_CONF="${DATA_ROOT}/config"
+LEGACY_V1_SPOOL="${DATA_ROOT}/state/spool"
 
 log_info "Preparing persistent storage in ${DATA_ROOT}"
 mkdir -p "${PERSIST_ETC}" "${PERSIST_SPOOL}" "${PERSIST_CACHE}" \
@@ -76,20 +76,45 @@ if [ "${RESET_CONFIG}" = "true" ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 3. Seed /data/cups/etc on first run, then make /etc/cups a symlink to it
+# 3. Migration from v1.x  (only on first v2 boot)
 #
-#    This is the central fix: every file CUPS writes during normal operation
-#    (printers.conf, classes.conf, subscriptions.conf, ppd/*.ppd) lives in
-#    /etc/cups. By symlinking /etc/cups to /data/cups/etc BEFORE cupsd starts,
-#    everything CUPS writes survives a container restart.
+#    v1 stored config at /data/cups/config/, spool at /data/cups/state/spool/.
+#    v2 expects /data/cups/etc/ and /data/cups/spool/. Pull the user's
+#    existing printers across so they are not lost on update.
 # ------------------------------------------------------------------------------
+if [ ! -f "${PERSIST_ETC}/.seeded" ] && [ -d "${LEGACY_V1_CONF}" ]; then
+    log_info "Detected v1.x layout → migrating ${LEGACY_V1_CONF}/ → ${PERSIST_ETC}/"
+    cp -an "${LEGACY_V1_CONF}/." "${PERSIST_ETC}/" 2>/dev/null || true
+    if [ -d "${LEGACY_V1_SPOOL}" ]; then
+        log_info "Migrating v1.x spool → ${PERSIST_SPOOL}/"
+        cp -an "${LEGACY_V1_SPOOL}/." "${PERSIST_SPOOL}/" 2>/dev/null || true
+    fi
+    log_info "Migration done. Old v1 directories left in place — remove manually if you want."
+fi
+
+# ------------------------------------------------------------------------------
+# 4. Seed /data/cups/etc on first run
+#
+#    IMPORTANT: we deliberately drop cupsd.conf and cups-files.conf from the
+#    package defaults — those are the files that contained `Listen localhost:631`
+#    and broke external reachability in v2.0.0. They are regenerated below.
+# ------------------------------------------------------------------------------
+FIRST_SEED="false"
 if [ ! -f "${PERSIST_ETC}/.seeded" ]; then
+    FIRST_SEED="true"
     log_info "First run: seeding default CUPS config from image"
     if [ -d /etc/cups ] && [ ! -L /etc/cups ]; then
-        # Copy package defaults across (incl. mime types, default policies, ...)
         cp -an /etc/cups/. "${PERSIST_ETC}/" 2>/dev/null || true
     fi
     mkdir -p "${PERSIST_ETC}/ppd" "${PERSIST_ETC}/ssl" "${PERSIST_ETC}/interfaces"
+
+    # Drop the Alpine-shipped server configs so our own templates take over.
+    # Everything else (mime types, default policies, …) stays as seeded.
+    rm -f "${PERSIST_ETC}/cupsd.conf"      \
+          "${PERSIST_ETC}/cups-files.conf" \
+          "${PERSIST_ETC}/cupsd.conf.default" \
+          "${PERSIST_ETC}/cups-files.conf.default"
+
     touch "${PERSIST_ETC}/.seeded"
 fi
 
@@ -99,12 +124,11 @@ if [ ! -L /etc/cups ]; then
 fi
 ln -sfn "${PERSIST_ETC}" /etc/cups
 
-# Same trick for spool, cache, logs (so jobs and history survive too)
+# Same trick for spool, cache, logs
 [ -L /var/spool/cups ] || { rm -rf /var/spool/cups; ln -sfn "${PERSIST_SPOOL}" /var/spool/cups; }
 [ -L /var/cache/cups ] || { rm -rf /var/cache/cups; ln -sfn "${PERSIST_CACHE}" /var/cache/cups; }
 [ -L /var/log/cups   ] || { rm -rf /var/log/cups;   ln -sfn "${PERSIST_LOGS}"  /var/log/cups;   }
 
-# Permissions — CUPS runs as root but writes as lp/lpadmin
 chown -R root:lp "${PERSIST_ETC}"   2>/dev/null || true
 chmod -R u+rwX,g+rwX "${PERSIST_ETC}"
 chown -R lp:lp   "${PERSIST_SPOOL}" 2>/dev/null || true
@@ -112,15 +136,14 @@ chown -R lp:lp   "${PERSIST_SPOOL}" 2>/dev/null || true
 log_info "Persistent storage ready."
 
 # ------------------------------------------------------------------------------
-# 4. Extra PPDs (user-supplied)  →  /usr/share/cups/model/extra
+# 5. Extra PPDs (user-supplied)
 # ------------------------------------------------------------------------------
 mkdir -p /usr/share/cups/model
 ln -sfn "${PERSIST_PPD_EXTRA}" /usr/share/cups/model/extra
-
 log_info "Drop additional PPD files into ${PERSIST_PPD_EXTRA} and they will appear in CUPS."
 
 # ------------------------------------------------------------------------------
-# 5. Default cupsd.conf — only written if missing or empty (preserves edits!)
+# 6. Default cupsd.conf — written on first seed, otherwise only LogLevel synced
 # ------------------------------------------------------------------------------
 write_default_cupsd_conf() {
     log_info "Writing default cupsd.conf"
@@ -133,7 +156,10 @@ ServerAdmin root@localhost
 ServerAlias *
 HostNameLookups Off
 
-Listen 0.0.0.0:631
+# Use the simple 'Port' form. cupsd's own config writer (Web UI 'Save') keeps
+# this intact; 'Listen 0.0.0.0:631' has been observed to be silently rewritten
+# to 'Listen localhost:631' on Alpine, which kills external access.
+Port 631
 Listen /run/cups/cups.sock
 
 DefaultEncryption Never
@@ -150,7 +176,7 @@ LogLevel ${LOG_LEVEL}
 PageLogFormat
 MaxLogSize 1m
 
-# Job retention — keep history so the web UI shows recent jobs
+# Job retention
 PreserveJobHistory Yes
 PreserveJobFiles  No
 MaxJobs 200
@@ -233,19 +259,7 @@ JobSheets none,none
 CUPSCONF
 }
 
-if [ ! -s /etc/cups/cupsd.conf ]; then
-    write_default_cupsd_conf
-else
-    # Update the LogLevel each boot if the user changed the add-on option,
-    # without clobbering anything else they may have edited.
-    if grep -qE '^[[:space:]]*LogLevel[[:space:]]' /etc/cups/cupsd.conf; then
-        sed -i -E "s/^[[:space:]]*LogLevel[[:space:]].*/LogLevel ${LOG_LEVEL}/" /etc/cups/cupsd.conf
-    fi
-    log_info "Existing cupsd.conf kept (only LogLevel synced to add-on option)."
-fi
-
-# Ensure cups-files.conf exists with sane defaults
-if [ ! -s /etc/cups/cups-files.conf ]; then
+write_default_cups_files_conf() {
     cat > /etc/cups/cups-files.conf <<'CFCONF'
 # Generated by HA CUPS add-on
 SystemGroup lpadmin root wheel
@@ -262,10 +276,36 @@ AccessLog    /var/log/cups/access_log
 ErrorLog     /var/log/cups/error_log
 PageLog      /var/log/cups/page_log
 CFCONF
+}
+
+# Always (re-)write on first seed. On later boots, preserve user edits and
+# only sync LogLevel from the add-on option.
+if [ "${FIRST_SEED}" = "true" ] || [ ! -s /etc/cups/cupsd.conf ]; then
+    write_default_cupsd_conf
+else
+    if grep -qE '^[[:space:]]*LogLevel[[:space:]]' /etc/cups/cupsd.conf; then
+        sed -i -E "s/^[[:space:]]*LogLevel[[:space:]].*/LogLevel ${LOG_LEVEL}/" /etc/cups/cupsd.conf
+    fi
+    # Defensive sweep: if a previous v2.0.0 install left us with the broken
+    # 'Listen localhost:631' line, replace it. This is what brings existing
+    # 2.0.0 deployments back to life without a reset_config.
+    if grep -qE '^[[:space:]]*Listen[[:space:]]+localhost:631' /etc/cups/cupsd.conf; then
+        log_warning "Found 'Listen localhost:631' in existing cupsd.conf — patching to 'Port 631'"
+        sed -i -E 's/^[[:space:]]*Listen[[:space:]]+localhost:631[[:space:]]*$/Port 631/' /etc/cups/cupsd.conf
+    fi
+    if ! grep -qE '^[[:space:]]*(Port[[:space:]]+631|Listen[[:space:]]+(0\.0\.0\.0|\*):631)' /etc/cups/cupsd.conf; then
+        log_warning "No external Listen directive found — adding 'Port 631'"
+        sed -i '1i Port 631' /etc/cups/cupsd.conf
+    fi
+    log_info "Existing cupsd.conf kept (LogLevel synced, listen sanity-checked)."
+fi
+
+if [ "${FIRST_SEED}" = "true" ] || [ ! -s /etc/cups/cups-files.conf ]; then
+    write_default_cups_files_conf
 fi
 
 # ------------------------------------------------------------------------------
-# 6. Admin user
+# 7. Admin user
 # ------------------------------------------------------------------------------
 log_info "Configuring admin user '${ADMIN_USER}'"
 if ! id "${ADMIN_USER}" >/dev/null 2>&1; then
@@ -276,7 +316,7 @@ addgroup "${ADMIN_USER}" lp      2>/dev/null || true
 echo "${ADMIN_USER}:${ADMIN_PASS}" | chpasswd
 
 # ------------------------------------------------------------------------------
-# 7. USB diagnostics (helpful in support tickets)
+# 8. USB diagnostics
 # ------------------------------------------------------------------------------
 log_info "=== USB devices visible to the container ==="
 lsusb 2>/dev/null || echo "  lsusb not available"
@@ -284,11 +324,10 @@ log_info "=== USB printer character devices ==="
 ls -la /dev/usb/lp* 2>/dev/null || echo "  No /dev/usb/lp* devices found"
 ls -la /dev/bus/usb 2>/dev/null || echo "  No /dev/bus/usb tree found"
 
-# Make sure the USB backend is executable
 chmod 755 /usr/lib/cups/backend/usb 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
-# 8. Avahi / mDNS  (so AirPrint and Bonjour clients discover the printer)
+# 9. Avahi / mDNS
 # ------------------------------------------------------------------------------
 setup_avahi() {
     log_info "Configuring Avahi"
@@ -297,13 +336,16 @@ setup_avahi() {
     local avahi_host
     avahi_host=$(hostname -s 2>/dev/null || echo "cups-server")
 
+    # enable-dbus=no — works without a running system bus, which is the
+    # situation in this container. v2.0.0 had enable-dbus=yes which silently
+    # broke Avahi when dbus failed to come up.
     cat > /etc/avahi/avahi-daemon.conf <<AVAHI
 [server]
 host-name=${avahi_host}
 domain-name=local
 use-ipv4=yes
 use-ipv6=no
-enable-dbus=yes
+enable-dbus=no
 ratelimit-interval-usec=1000000
 ratelimit-burst=1000
 
@@ -332,7 +374,7 @@ start_dbus() {
     fi
     dbus-daemon --system 2>/dev/null && \
         log_info "D-Bus running" || \
-        log_warning "D-Bus failed to start — Avahi may run in standalone mode"
+        log_warning "D-Bus failed to start — Avahi runs in standalone mode (this is fine)"
 }
 
 start_avahi() {
@@ -360,7 +402,7 @@ start_avahi() {
 }
 
 # ------------------------------------------------------------------------------
-# 9. Nginx proxy on :8631 (for hass_ingress iframe embedding)
+# 10. Nginx proxy on :8631 (for hass_ingress)
 # ------------------------------------------------------------------------------
 start_nginx() {
     if ! command -v nginx >/dev/null 2>&1; then
@@ -372,10 +414,9 @@ start_nginx() {
 }
 
 # ------------------------------------------------------------------------------
-# 10. Post-start: enable sharing on existing printers
+# 11. Post-start: enable sharing on existing printers, sanity-check listen
 # ------------------------------------------------------------------------------
 enable_printer_sharing() {
-    # Wait for cupsd to accept connections
     for _ in $(seq 1 20); do
         if lpstat -r 2>/dev/null | grep -q "running"; then
             break
@@ -398,8 +439,40 @@ enable_printer_sharing() {
     done
 }
 
+verify_listen() {
+    sleep 3
+    # Try ss first, fall back to netstat, then to a connection probe
+    local listening=""
+    if command -v ss >/dev/null 2>&1; then
+        listening=$(ss -ltn 2>/dev/null | awk '$4 ~ /:631$/ {print $4}')
+    elif command -v netstat >/dev/null 2>&1; then
+        listening=$(netstat -ltn 2>/dev/null | awk '$4 ~ /:631$/ {print $4}')
+    fi
+
+    if [ -z "${listening}" ]; then
+        log_warning "Could not verify listen state (no ss/netstat) — trying curl"
+        if curl -sS --max-time 2 http://127.0.0.1:631/ >/dev/null 2>&1; then
+            log_info "cupsd answers on 127.0.0.1:631"
+        else
+            log_error "cupsd does NOT answer on 127.0.0.1:631 — check the log above"
+        fi
+        return
+    fi
+
+    log_info "cupsd is listening on: ${listening}"
+    if echo "${listening}" | grep -qE '^(127\.0\.0\.1|::1):631$'; then
+        log_error "============================================================"
+        log_error " cupsd is bound to localhost ONLY — Web UI will not be"
+        log_error " reachable from the LAN. This is the v2.0.0 bug."
+        log_error " Set reset_config: true in the add-on options once and"
+        log_error " restart, OR edit /data/cups/etc/cupsd.conf and replace"
+        log_error " the Listen line with:   Port 631"
+        log_error "============================================================"
+    fi
+}
+
 # ------------------------------------------------------------------------------
-# 11. Graceful shutdown
+# 12. Graceful shutdown
 # ------------------------------------------------------------------------------
 cleanup() {
     log_info "Shutting down…"
@@ -407,7 +480,6 @@ cleanup() {
     killall -TERM avahi-daemon 2>/dev/null || true
     killall -TERM dbus-daemon  2>/dev/null || true
     killall -TERM nginx        2>/dev/null || true
-    # Give services a moment to flush state to /data/cups/etc
     sleep 1
     log_info "Bye."
     exit 0
@@ -415,7 +487,7 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # ------------------------------------------------------------------------------
-# 12. Boot sequence
+# 13. Boot sequence
 # ------------------------------------------------------------------------------
 start_dbus
 setup_avahi
@@ -430,6 +502,7 @@ CUPSD_PID=$!
 log_info "cupsd PID: ${CUPSD_PID}"
 
 ( enable_printer_sharing ) &
+( verify_listen )          &
 
 log_info "============================================"
 log_info " CUPS Print Server is up"
@@ -446,5 +519,4 @@ fi
 log_info "  Storage:  ${PERSIST_ETC}  ←  printers persist here"
 log_info "============================================"
 
-# Block on cupsd; trap above handles signals
 wait ${CUPSD_PID}
