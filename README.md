@@ -1,6 +1,6 @@
 # Home Assistant CUPS Print Server Add-on
 
-[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/Lexorius/cups-addon)
+[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg)](https://github.com/Lexorius/cups-addon)
 [![aarch64](https://img.shields.io/badge/aarch64-yes-green.svg)](#)
 [![armv7](https://img.shields.io/badge/armv7-yes-green.svg)](#)
 [![armhf](https://img.shields.io/badge/armhf-yes-green.svg)](#)
@@ -8,28 +8,31 @@
 [![i386](https://img.shields.io/badge/i386-yes-green.svg)](#)
 
 A CUPS print server add-on for Home Assistant with a **persistent** printer
-configuration and a **comprehensive driver stack** that works out of the box
-on a Raspberry Pi 4.
+configuration, **bridged networking with explicit port mapping** for
+reliable Web UI reachability, and a **comprehensive driver stack** that
+works out of the box on a Raspberry Pi 4.
 
-> **v2.0.1 highlights** — Fixes the v2.0.0 bug where cupsd was bound to
-> `localhost` only and the Web UI on `:631` was unreachable from the LAN.
-> Adds a one-shot self-heal for affected installs and proper v1.x → v2.x
-> migration of `/data/cups/config/` → `/data/cups/etc/`.
+> **v2.0.2 highlights** — Switched from host networking to bridged mode
+> with explicit port mapping. The Web UI on `:631` is now reliably
+> reachable even on hosts where something else competes for the port.
+> Trade-off: AirPrint auto-discovery is limited in bridged mode (see
+> [AirPrint section](#airprint--ios)).
 
 ## Features
 
 - **Persistent printer configuration** — printers, PPDs, queues and job
   history all live in `/data/cups/` and survive restarts and updates.
 - **USB printer support** — direct passthrough of USB printers from the HA
-  host.
+  host (independent of network mode).
 - **Network printing & sharing** — IPP, LPD and HTTP available on the LAN.
-- **AirPrint / Bonjour** via Avahi/mDNS.
+- **Bridged networking, explicit port mapping** — `:631`, `:8631`, `:5353`
+  forwarded by the supervisor, no port conflicts with the HA host.
 - **Web interface** at `http://<HA-IP>:631`.
 - **hass_ingress integration** via reverse proxy on port 8631 (CSP headers
   stripped).
 - **Listen sanity check** at startup — if cupsd ever ends up bound to
-  localhost again, the log will say so loudly instead of failing silently.
-- **Drivers preinstalled (and verified on Raspberry Pi 4):**
+  localhost, the log says so loudly instead of failing silently.
+- **Drivers preinstalled (verified on Raspberry Pi 4):**
   - Gutenprint (Epson, Canon, HP, Lexmark, ESC/P, PCL …)
   - Foomatic database (10 000+ printer PPDs)
   - HPLIP (HP)
@@ -81,7 +84,21 @@ the Samba share). The new PPD shows up under the **extra** vendor in CUPS.
 | Windows | Settings → Printers → *Add printer using TCP/IP* → `http://<HA-IP>:631/printers/<name>` |
 | macOS   | System Settings → Printers → IP tab → IPP → `<HA-IP>` → queue `printers/<name>` |
 | Linux   | `lpadmin -p MyPrinter -E -v ipp://<HA-IP>:631/printers/<name>`             |
-| iOS / iPadOS | Auto-discovered via AirPrint when Avahi is up                          |
+
+## AirPrint / iOS
+
+In bridged networking mode (the v2.0.2 default), mDNS broadcasts don't
+traverse the docker bridge, so iOS will not auto-discover the queue.
+**Printing itself works** — you just have to add the printer manually
+once on each device:
+
+- iOS / iPadOS: install **Printopia** or any IPP-capable app, or use
+  AirPrint Activator on a Mac on the same LAN to bridge the announcement.
+  Direct printing from any IPP app: `ipp://<HA-IP>:631/printers/<name>`.
+- If AirPrint auto-discovery is essential to you, you can revert to host
+  networking by setting `host_network: true` in `config.yaml` and removing
+  the `ports:` block — but this only works if nothing else on the HA host
+  is bound to `:631`.
 
 ## hass_ingress (sidebar) integration
 
@@ -123,18 +140,14 @@ If you ever need to start fresh, set `reset_config: true` once and restart.
 ## Troubleshooting
 
 **Web UI on :631 is not reachable from the LAN.** Check the boot log for
-the line `cupsd is listening on: …`. If it shows `127.0.0.1:631` or `::1:631`,
+`cupsd is listening on: …`. If it shows `127.0.0.1:631` or `::1:631`,
 your `/data/cups/etc/cupsd.conf` was seeded with the broken Alpine default.
-v2.0.1 self-heals this automatically on the next start; if you are stuck on
-v2.0.0, set `reset_config: true` once and restart, or edit
+v2.0.1+ self-heals this on the next start; if you are stuck, set
+`reset_config: true` once and restart, or edit
 `/data/cups/etc/cupsd.conf` and replace the `Listen` line with `Port 631`.
 
 **Printer is gone after a restart.** This was a v1.x bug. Update to v2.x
-and re-add the printer once — it will stick from then on. If it *still*
-disappears, check that `/data/cups/etc` exists and is writable:
-```bash
-ha addons logs cups | grep -i persistent
-```
+and re-add the printer once — it will stick from then on.
 
 **USB printer not detected.** The add-on logs `lsusb` and `/dev/usb/lp*` at
 boot. If your printer is not in either list, the HA host itself can't see it
@@ -144,9 +157,8 @@ plugging it in.
 **hass_ingress shows broken layout.** Use port `8631` (the proxy) instead
 of `631`. The proxy strips CSP/X-Frame headers; raw CUPS doesn't.
 
-**Avahi shows `INACTIVE` in the boot log.** Printing still works manually
-via `ipp://<HA-IP>:631/printers/<name>`. AirPrint discovery requires
-Avahi — check that port 5353/UDP isn't blocked and `host_network` is `true`.
+**iOS doesn't see the printer.** See the [AirPrint section](#airprint--ios)
+above — this is expected in bridged mode.
 
 ## Credits
 

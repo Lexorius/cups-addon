@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.2 — Bridged networking, explicit port forwarding
+
+### Changed
+- **`host_network: true` → `host_network: false`.** With host networking the
+  add-on's cupsd competes for `:631` with anything else on the HA host (some
+  HA OS variants ship their own printing service or have other listeners
+  there). Switching to bridged mode with explicit port forwarding makes
+  the Web UI reliably reachable. Trade-off: AirPrint auto-discovery is
+  unreliable in bridged mode because mDNS broadcasts don't traverse the
+  docker bridge cleanly. iOS / iPadOS clients must add the printer once
+  manually via `ipp://<HA-IP>:631/printers/<name>` — direct printing then
+  works as before. Avahi is still started in the container so direct
+  unicast queries still resolve, but the daemon's reach is essentially
+  the container itself.
+
+### Notes
+- Existing printers are not affected by this change — they live in
+  `/data/cups/etc/` and are picked up regardless of network mode.
+- USB printer passthrough is independent of network mode and continues
+  to work.
+
+---
+
 ## 2.0.1 — Web UI on :631 reachable again
 
 ### Fixed
@@ -40,16 +63,6 @@
   Neither is referenced by the Dockerfile (`CMD` points at
   `/etc/cont-init.d/cups.sh`); they were only causing confusion.
 
-### Migration notes
-- **Updating from v2.0.0:** just install v2.0.1 and restart the add-on.
-  The self-heal patches your existing `cupsd.conf` on boot — look for the
-  `WARN: Found 'Listen localhost:631' in existing cupsd.conf — patching to
-  'Port 631'` line in the log to confirm.
-- **Updating from v1.x:** your printers are migrated automatically from
-  `/data/cups/config/` to `/data/cups/etc/` on first boot. The old
-  directories are left untouched in case you want to roll back; remove
-  them by hand once you are happy with v2.
-
 ---
 
 ## 2.0.0 — Persistence & Raspberry Pi 4 driver overhaul
@@ -61,31 +74,18 @@
   `/etc/cups` inside the (volatile) container. The fix moves the **entire**
   `/etc/cups` directory onto persistent storage at `/data/cups/etc` via a
   symlink that is established before `cupsd` starts.
-- Print spool, cache and logs are now persistent too (`/var/spool/cups`,
-  `/var/cache/cups`, `/var/log/cups`).
-- `cupsd.conf` is no longer overwritten on every boot — user edits to the
-  server config (e.g. via the CUPS web UI) are preserved. Only the
-  `LogLevel` is synced from the add-on option each boot.
+- Print spool, cache and logs are now persistent too.
 
 ### Added
 - **Comprehensive driver stack for Raspberry Pi 4 (aarch64 / armv7):**
-  - `gutenprint` + `gutenprint-cups` (Epson, Canon, HP, Lexmark, ESC/P, PCL …)
-  - `foomatic-db`, `foomatic-db-engine`, `foomatic-db-ppds` (10 000+ PPDs)
-  - `hplip` + `hplip-cups` (HP) — soft-fails when not built for the arch
-  - `printer-driver-brlaser` (Brother lasers, ARM-safe)
-  - `printer-driver-splix` (Samsung / Xerox / Dell)
-  - `printer-driver-ptouch`, `printer-driver-zedonk` (label printers)
-  - `ghostscript`, `poppler-utils` (PDF/PS rendering pipeline)
-- New add-on options:
-  - `log_level` — pick CUPS verbosity from the add-on UI
-  - `reset_config` — wipe persistent config on next boot (recovery switch)
-- Drop-in folder for custom PPDs at `/data/cups/ppd-extra/`, automatically
-  surfaced in CUPS as the **extra** vendor.
+  Gutenprint, Foomatic database, HPLIP, brlaser, splix, ptouch, zedonk,
+  ghostscript, poppler-utils.
+- New add-on options: `log_level`, `reset_config`.
+- Drop-in folder for custom PPDs at `/data/cups/ppd-extra/`.
 - `tini` as PID 1 for clean signal handling and graceful shutdown.
 
 ### Changed
-- Default admin password moved from `admin` to `changeme` to nudge users
-  toward setting their own.
+- Default admin password moved from `admin` to `changeme`.
 - Dockerfile reorganised so a missing optional driver no longer fails the
   whole build.
 

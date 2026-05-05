@@ -1,20 +1,16 @@
 #!/bin/bash
 # ==============================================================================
-# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.1)
+# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.2)
 #
-# Fixes vs. 2.0.0
-#   * cupsd was listening only on localhost after first boot, because the
-#     Alpine package default cupsd.conf got copied into /data/cups/etc/ during
-#     seeding and then the "only write if empty"-guard skipped the override.
-#     We now always (re-)write cupsd.conf on first seed, and we use `Port 631`
-#     instead of `Listen 0.0.0.0:631` so CUPS' own config rewrites can't break
-#     external reachability later.
-#   * Migration path from v1.x: /data/cups/config/  ->  /data/cups/etc/.
-#     Existing printers from v1 are imported on first v2 boot.
-#   * Sanity check after start: log a clear error if cupsd is not listening on
-#     all interfaces, so this class of bug can't hide silently again.
-#   * Self-heal for already-broken v2.0.0 installs: if an existing cupsd.conf
-#     contains `Listen localhost:631`, the line is patched in place.
+# v2.0.2: bridged networking is now the default (host_network: false in
+# config.yaml). cupsd binds inside the container's own network namespace
+# and the supervisor forwards :631 / :8631 / :5353 from the host. This is
+# more reliable than host networking, but mDNS/AirPrint discovery is
+# limited because broadcasts don't traverse the docker bridge.
+#
+# v2.0.1: fixed the v2.0.0 "Listen localhost:631" regression and added
+# v1.x → v2.x migration plus a startup listen sanity check. All of that
+# is still in here; see the conditional self-heal in section 6.
 # ==============================================================================
 set -eu
 
@@ -26,8 +22,8 @@ log_warning() { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 log_error()   { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 log_info "============================================"
-log_info " CUPS Print Server Add-on  v2.0.1"
-log_info " Persistent config + ARM driver stack"
+log_info " CUPS Print Server Add-on  v2.0.2"
+log_info " Bridged networking, persistent config"
 log_info "============================================"
 
 # ------------------------------------------------------------------------------
@@ -276,17 +272,14 @@ PageLog      /var/log/cups/page_log
 CFCONF
 }
 
-# Always (re-)write on first seed. On later boots, preserve user edits and
-# only sync LogLevel from the add-on option, plus self-heal the listen line.
 if [ "${FIRST_SEED}" = "true" ] || [ ! -s /etc/cups/cupsd.conf ]; then
     write_default_cupsd_conf
 else
     if grep -qE '^[[:space:]]*LogLevel[[:space:]]' /etc/cups/cupsd.conf; then
         sed -i -E "s/^[[:space:]]*LogLevel[[:space:]].*/LogLevel ${LOG_LEVEL}/" /etc/cups/cupsd.conf
     fi
-    # Defensive sweep: if a previous v2.0.0 install left us with the broken
-    # 'Listen localhost:631' line, replace it. This brings existing 2.0.0
-    # deployments back to life without a reset_config.
+    # Self-heal: replace 'Listen localhost:631' if a previous v2.0.0 install
+    # left that broken line behind.
     if grep -qE '^[[:space:]]*Listen[[:space:]]+localhost:631' /etc/cups/cupsd.conf; then
         log_warning "Found 'Listen localhost:631' in existing cupsd.conf — patching to 'Port 631'"
         sed -i -E 's/^[[:space:]]*Listen[[:space:]]+localhost:631[[:space:]]*$/Port 631/' /etc/cups/cupsd.conf
@@ -326,6 +319,10 @@ chmod 755 /usr/lib/cups/backend/usb 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # 9. Avahi / mDNS
+#
+# In bridged mode (host_network: false) Avahi can only really respond to
+# unicast queries directed at the container's IP — broadcasts don't escape
+# the docker bridge. That's expected; printing itself works regardless.
 # ------------------------------------------------------------------------------
 setup_avahi() {
     log_info "Configuring Avahi"
@@ -334,9 +331,6 @@ setup_avahi() {
     local avahi_host
     avahi_host=$(hostname -s 2>/dev/null || echo "cups-server")
 
-    # enable-dbus=no — works without a running system bus, which is the
-    # usual situation in this container. v2.0.0 had enable-dbus=yes which
-    # silently broke Avahi when dbus failed to come up.
     cat > /etc/avahi/avahi-daemon.conf <<AVAHI
 [server]
 host-name=${avahi_host}
@@ -385,13 +379,13 @@ start_avahi() {
     sleep 1
 
     if avahi-daemon --no-rlimits --daemonize 2>/dev/null; then
-        log_info "Avahi running"
+        log_info "Avahi running (limited reach in bridged mode)"
         return 0
     fi
 
     log_warning "Avahi standard start failed — retrying with --no-drop-root"
     if avahi-daemon --no-rlimits --no-drop-root --daemonize 2>/dev/null; then
-        log_info "Avahi running (no-drop-root)"
+        log_info "Avahi running (no-drop-root, limited reach in bridged mode)"
         return 0
     fi
 
@@ -412,10 +406,9 @@ start_nginx() {
 }
 
 # ------------------------------------------------------------------------------
-# 11. Post-start: enable sharing on existing printers, sanity-check listen
+# 11. Post-start: enable sharing, sanity-check listen
 # ------------------------------------------------------------------------------
 enable_printer_sharing() {
-    # Wait for cupsd to accept connections
     for _ in $(seq 1 20); do
         if lpstat -r 2>/dev/null | grep -q "running"; then
             break
@@ -450,7 +443,7 @@ verify_listen() {
     if [ -z "${listening}" ]; then
         log_warning "Could not enumerate sockets (no ss/netstat) — falling back to curl probe"
         if curl -sS --max-time 2 http://127.0.0.1:631/ >/dev/null 2>&1; then
-            log_info "cupsd answers on 127.0.0.1:631 (cannot tell whether it also listens externally)"
+            log_info "cupsd answers on 127.0.0.1:631"
         else
             log_error "cupsd does NOT answer on 127.0.0.1:631 — see log above"
         fi
@@ -461,10 +454,9 @@ verify_listen() {
     if echo "${listening}" | grep -qE '^(127\.0\.0\.1|::1):631$'; then
         log_error "============================================================"
         log_error " cupsd is bound to localhost ONLY — Web UI will NOT be"
-        log_error " reachable from the LAN. This is the v2.0.0 bug."
-        log_error " Set reset_config: true in the add-on options once and"
-        log_error " restart, OR edit /data/cups/etc/cupsd.conf and replace"
-        log_error " the Listen line with:   Port 631"
+        log_error " reachable. Check /data/cups/etc/cupsd.conf for a 'Listen'"
+        log_error " line. The expected directive is:   Port 631"
+        log_error " Or set reset_config: true once and restart."
         log_error "============================================================"
     fi
 }
@@ -510,12 +502,11 @@ log_info "  Ingress:  http://<HA-IP>:8631   (hass_ingress)"
 log_info "  IPP    :  ipp://<HA-IP>:631/printers/<name>"
 log_info "  Login  :  ${ADMIN_USER} / ********"
 if [ "${AVAHI_OK}" -eq 0 ]; then
-    log_info "  Avahi  :  ACTIVE  (AirPrint / Bonjour)"
+    log_info "  Avahi  :  ACTIVE (bridged mode — discovery limited)"
 else
     log_info "  Avahi  :  INACTIVE (manual setup needed on clients)"
 fi
 log_info "  Storage:  ${PERSIST_ETC}  ←  printers persist here"
 log_info "============================================"
 
-# Block on cupsd; trap above handles signals
 wait ${CUPSD_PID}
