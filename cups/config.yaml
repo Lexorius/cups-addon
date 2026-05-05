@@ -1,5 +1,5 @@
 ---
-version: "2.0.0"
+version: "2.0.1"
 slug: cups
 name: CUPS Print Server
 description: >-
@@ -15,10 +15,12 @@ arch:
   - i386
 hassio_api: true
 
-# Host network so printers are reachable on the LAN and Avahi/mDNS can broadcast
+# Host network so printers are reachable on the LAN and Avahi/mDNS can broadcast.
+# When host_network is true the `ports:` block below is informational only —
+# the container binds directly to the host's network namespace.
 host_network: true
 
-# No internal ingress — use hass_ingress (HACS) instead
+# No internal ingress — use hass_ingress (HACS) instead.
 ingress: false
 
 # USB support for direct-attached printers

@@ -1,6 +1,6 @@
 # Home Assistant CUPS Print Server Add-on
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Lexorius/cups-addon)
+[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/Lexorius/cups-addon)
 [![aarch64](https://img.shields.io/badge/aarch64-yes-green.svg)](#)
 [![armv7](https://img.shields.io/badge/armv7-yes-green.svg)](#)
 [![armhf](https://img.shields.io/badge/armhf-yes-green.svg)](#)
@@ -11,9 +11,10 @@ A CUPS print server add-on for Home Assistant with a **persistent** printer
 configuration and a **comprehensive driver stack** that works out of the box
 on a Raspberry Pi 4.
 
-> **v2.0.0 highlights** — Printer setup now survives restarts (the v1.x
-> persistence bug is fixed) and the driver stack covers Gutenprint, Foomatic,
-> HPLIP, brlaser, splix, ptouch and IPP Everywhere on aarch64 / armv7.
+> **v2.0.1 highlights** — Fixes the v2.0.0 bug where cupsd was bound to
+> `localhost` only and the Web UI on `:631` was unreachable from the LAN.
+> Adds a one-shot self-heal for affected installs and proper v1.x → v2.x
+> migration of `/data/cups/config/` → `/data/cups/etc/`.
 
 ## Features
 
@@ -26,6 +27,8 @@ on a Raspberry Pi 4.
 - **Web interface** at `http://<HA-IP>:631`.
 - **hass_ingress integration** via reverse proxy on port 8631 (CSP headers
   stripped).
+- **Listen sanity check** at startup — if cupsd ever ends up bound to
+  localhost again, the log will say so loudly instead of failing silently.
 - **Drivers preinstalled (and verified on Raspberry Pi 4):**
   - Gutenprint (Epson, Canon, HP, Lexmark, ESC/P, PCL …)
   - Foomatic database (10 000+ printer PPDs)
@@ -119,9 +122,16 @@ If you ever need to start fresh, set `reset_config: true` once and restart.
 
 ## Troubleshooting
 
-**Printer is gone after a restart.** This was the v1.x bug. Update to
-v2.0.0 and re-add the printer once — it will stick from then on. If it
-*still* disappears, check that `/data/cups/etc` exists and is writable:
+**Web UI on :631 is not reachable from the LAN.** Check the boot log for
+the line `cupsd is listening on: …`. If it shows `127.0.0.1:631` or `::1:631`,
+your `/data/cups/etc/cupsd.conf` was seeded with the broken Alpine default.
+v2.0.1 self-heals this automatically on the next start; if you are stuck on
+v2.0.0, set `reset_config: true` once and restart, or edit
+`/data/cups/etc/cupsd.conf` and replace the `Listen` line with `Port 631`.
+
+**Printer is gone after a restart.** This was a v1.x bug. Update to v2.x
+and re-add the printer once — it will stick from then on. If it *still*
+disappears, check that `/data/cups/etc` exists and is writable:
 ```bash
 ha addons logs cups | grep -i persistent
 ```

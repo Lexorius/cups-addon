@@ -2,16 +2,16 @@ ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
 # ==============================================================================
-# CUPS Print Server for Home Assistant
+# CUPS Print Server for Home Assistant   (v2.0.1)
 # Optimised for ARM (Raspberry Pi 4 - aarch64 / armv7) and amd64 / i386
 # Alpine 3.23 base
 # ==============================================================================
 
 # Enable community + testing repositories (foomatic-db, gutenprint, hplip live there)
 RUN set -eux; \
-    echo "https://dl-cdn.alpinelinux.org/alpine/v3.23/main"        >  /etc/apk/repositories; \
-    echo "https://dl-cdn.alpinelinux.org/alpine/v3.23/community"   >> /etc/apk/repositories; \
-    echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing"      >> /etc/apk/repositories
+    echo "https://dl-cdn.alpinelinux.org/alpine/v3.23/main"      >  /etc/apk/repositories; \
+    echo "https://dl-cdn.alpinelinux.org/alpine/v3.23/community" >> /etc/apk/repositories; \
+    echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing"    >> /etc/apk/repositories
 
 # ------------------------------------------------------------------------------
 # Core packages (must work on every supported arch)
@@ -38,7 +38,7 @@ RUN set -eux; \
 # ------------------------------------------------------------------------------
 RUN set -eux; \
     # Gutenprint covers Epson, Canon, HP, Lexmark, Olympus, PCL, ESC/P, ...
-    apk add --no-cache gutenprint gutenprint-cups || echo "WARN: gutenprint not available";  \
+    apk add --no-cache gutenprint gutenprint-cups || echo "WARN: gutenprint not available"; \
     # Foomatic database — thousands of PPDs for legacy and current printers
     apk add --no-cache foomatic-db foomatic-db-engine foomatic-db-ppds || echo "WARN: foomatic-db not available"; \
     # HPLIP — HP printers/scanners (on ARM only the lite variant is sometimes built)
@@ -48,7 +48,7 @@ RUN set -eux; \
     apk add --no-cache printer-driver-brlaser || echo "WARN: brlaser not available"; \
     # Samsung / Xerox / Dell laser
     apk add --no-cache printer-driver-splix   || echo "WARN: splix not available"; \
-    # Zebra / DYMO / EPL2 label printers (ARM-safe, builds from source in Alpine)
+    # Zebra / DYMO / EPL2 label printers
     apk add --no-cache printer-driver-ptouch  || echo "WARN: ptouch not available"; \
     apk add --no-cache printer-driver-zedonk  || echo "WARN: zedonk not available"; \
     # Generic / fallback driverless support helpers
