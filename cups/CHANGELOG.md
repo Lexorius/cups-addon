@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.3 — Startup-crash fixes
+
+### Fixed
+- **Add-on container looped on restart and never finished booting.** Two
+  independent issues piled onto each other:
+  1. `cupsd.conf` was written with `FileDevice Yes` and
+     `SystemGroup lpadmin root wheel`. In CUPS 2.4 (Alpine 3.23) both are
+     **cups-files.conf-only** directives; cupsd refuses a `cupsd.conf` that
+     contains them with `Bad directive ... must be in cups-files.conf
+     instead.` and exits. `FileDevice` is now written to
+     `cups-files.conf` (where it belongs) and stripped from `cupsd.conf`.
+  2. `start_avahi`'s `return 1` on failure used to terminate the entire
+     entrypoint under `set -e`, **before** `AVAHI_OK=$?` was assigned and
+     **before** `cupsd` was even started. The exit-code capture is now
+     wrapped in an `if/else` so Avahi failing only disables discovery — the
+     queue itself comes up regardless.
+- **Self-heal for existing installs.** Upgrades from v2.0.0–v2.0.2 inherit
+  a broken on-disk `cupsd.conf`; the boot script now strips the
+  `FileDevice` / `SystemGroup` lines in place and appends `FileDevice Yes`
+  to `cups-files.conf` if missing — no `reset_config` needed.
+- **`chpasswd` failure no longer aborts the boot.** Previously, an error
+  setting the admin password would kill the container under `set -e`. It
+  is now warning-only.
+
+---
+
 ## 2.0.2 — Bridged networking, explicit port forwarding
 
 ### Changed

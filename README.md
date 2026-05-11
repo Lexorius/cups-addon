@@ -1,6 +1,6 @@
 # Home Assistant CUPS Print Server Add-on
 
-[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg)](https://github.com/Lexorius/cups-addon)
+[![Version](https://img.shields.io/badge/version-2.0.3-blue.svg)](https://github.com/Lexorius/cups-addon)
 [![aarch64](https://img.shields.io/badge/aarch64-yes-green.svg)](#)
 [![armv7](https://img.shields.io/badge/armv7-yes-green.svg)](#)
 [![armhf](https://img.shields.io/badge/armhf-yes-green.svg)](#)
@@ -12,7 +12,13 @@ configuration, **bridged networking with explicit port mapping** for
 reliable Web UI reachability, and a **comprehensive driver stack** that
 works out of the box on a Raspberry Pi 4.
 
-> **v2.0.2 highlights** — Switched from host networking to bridged mode
+> **v2.0.3 highlights** — Two startup-crash fixes: cupsd.conf no longer
+> contains `FileDevice` / `SystemGroup` (cups-files.conf-only directives
+> that made cupsd refuse to start on CUPS 2.4), and a failing Avahi can
+> no longer abort the boot before cupsd has even launched. Existing
+> installs self-heal on next start — no `reset_config` needed.
+>
+> **v2.0.2** — Switched from host networking to bridged mode
 > with explicit port mapping. The Web UI on `:631` is now reliably
 > reachable even on hosts where something else competes for the port.
 > Trade-off: AirPrint auto-discovery is limited in bridged mode (see
