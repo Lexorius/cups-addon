@@ -1,6 +1,13 @@
 #!/bin/bash
 # ==============================================================================
-# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.3)
+# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.4)
+#
+# v2.0.4: surfaces cupsd's error log in the supervisor log. v2.0.3 fixed
+# the most obvious config bugs but in some installs cupsd still dies
+# silently within a few seconds of starting. Its errors go to
+# /var/log/cups/error_log, which is invisible from outside the container;
+# the script now tails that file with a [CUPSD] prefix and also logs the
+# wait() exit code so the next restart loop is debuggable instead of mute.
 #
 # v2.0.3: two startup-crash fixes.
 #   1. cupsd.conf no longer contains 'FileDevice' / 'SystemGroup' — those
@@ -33,7 +40,7 @@ log_warning() { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 log_error()   { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 log_info "============================================"
-log_info " CUPS Print Server Add-on  v2.0.3"
+log_info " CUPS Print Server Add-on  v2.0.4"
 log_info " Bridged networking, persistent config"
 log_info "============================================"
 
@@ -495,12 +502,14 @@ verify_listen() {
 # ------------------------------------------------------------------------------
 # 12. Graceful shutdown
 # ------------------------------------------------------------------------------
+TAIL_PID=""
 cleanup() {
     log_info "Shutting down…"
     killall -TERM cupsd        2>/dev/null || true
     killall -TERM avahi-daemon 2>/dev/null || true
     killall -TERM dbus-daemon  2>/dev/null || true
     killall -TERM nginx        2>/dev/null || true
+    [ -n "${TAIL_PID}" ] && kill -TERM "${TAIL_PID}" 2>/dev/null || true
     sleep 1
     log_info "Bye."
     exit 0
@@ -522,6 +531,17 @@ if start_avahi; then
 fi
 
 start_nginx
+
+# Mirror cupsd's own error log into the supervisor log so that fatal startup
+# errors (config syntax, missing dirs, permission issues, …) actually show
+# up where the user can see them. Without this the script reaches "CUPS
+# Print Server is up", cupsd dies a second later, and the supervisor log
+# tells you nothing about WHY — the cause is buried in /var/log/cups/error_log.
+mkdir -p /var/log/cups
+touch /var/log/cups/error_log
+( tail -n 0 -F /var/log/cups/error_log 2>/dev/null | \
+    while IFS= read -r line; do echo "[CUPSD] ${line}"; done ) &
+TAIL_PID=$!
 
 log_info "Starting cupsd (foreground)"
 /usr/sbin/cupsd -f &
@@ -546,4 +566,11 @@ fi
 log_info "  Storage:  ${PERSIST_ETC}  ←  printers persist here"
 log_info "============================================"
 
-wait ${CUPSD_PID}
+# Don't let set -e swallow cupsd's exit code — we want to log it.
+CUPSD_EXIT=0
+wait ${CUPSD_PID} || CUPSD_EXIT=$?
+log_error "cupsd exited with code ${CUPSD_EXIT} — see [CUPSD] lines above for the actual reason"
+# Give the background tail a beat to flush any final error_log lines before
+# the script (and the container with it) goes away.
+sleep 2
+exit ${CUPSD_EXIT}

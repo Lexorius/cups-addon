@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.4 — Surface cupsd's own error log in the supervisor log
+
+### Added
+- **`[CUPSD]`-prefixed lines from `/var/log/cups/error_log`** are now
+  streamed into the add-on's supervisor log. Until now, when cupsd died
+  shortly after the entrypoint logged "CUPS Print Server is up", the
+  reason was buried in the container's CUPS log and the supervisor view
+  was silent. Any future restart loop will now show the actual config /
+  permission / runtime error that cupsd is complaining about.
+- **`cupsd exited with code N`** is logged when `wait` returns, instead
+  of letting `set -e` swallow the failure quietly. This makes "cupsd
+  died" distinguishable from "the entrypoint itself crashed."
+
+---
+
 ## 2.0.3 — Startup-crash fixes
 
 ### Fixed
