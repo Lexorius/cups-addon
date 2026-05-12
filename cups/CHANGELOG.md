@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.7 — Fix 'Not Found' on http://<HA-IP>:631/
+
+### Fixed
+- **Web UI root returned `Not Found`.** `cups-files.conf` had
+  `DocumentRoot /usr/share/cups/doc`, but Alpine's `cups` package
+  installs the HTML files at `/usr/share/cups/doc-root` (built with
+  `--with-docdir=/usr/share/cups/doc-root`). cupsd answered HTTP 404 on
+  `/` because `index.html` was nowhere along the configured path.
+  `/admin` and `/printers` still worked because cupsd generates those
+  pages dynamically. The boot script now detects the correct DocumentRoot
+  at runtime (first directory under `/usr/share/cups/` that actually
+  contains `index.html`) and self-heals existing `cups-files.conf`
+  in place — no `reset_config` needed.
+
+---
+
 ## 2.0.6 — The actual fix: TempDir was never created on disk
 
 ### Fixed
