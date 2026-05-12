@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.0.6 — The actual fix: TempDir was never created on disk
+
+### Fixed
+- **CUPS startup loop on every install since v2.0.0.** The `cupsd -t`
+  diagnostic added in v2.0.5 finally pinpointed the cause:
+
+  ```
+  File or directory for "TempDir /var/spool/cups/tmp" on line 9 of
+  /etc/cups/cups-files.conf does not exist.
+  ```
+
+  `cups-files.conf` points `TempDir` at `/var/spool/cups/tmp`, which is
+  the symlinked persistent spool directory. The bootstrap script only
+  created the spool root (`/data/cups/spool`); the `tmp/` subdir was
+  never created, and CUPS 2.4 refuses to start cupsd when `TempDir`
+  doesn't exist. cupsd exited with code 1 before its own ErrorLog was
+  open, which is why the supervisor log was effectively silent.
+
+  Fix: `mkdir -p ${PERSIST_SPOOL}/tmp`, `chown lp:lp`, `chmod 1770` at
+  every boot. Existing installs heal on next start — no `reset_config`
+  needed.
+
+---
+
 ## 2.0.5 — Surface cupsd's stderr (and dry-run validate the config)
 
 ### Background

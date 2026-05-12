@@ -1,6 +1,18 @@
 #!/bin/bash
 # ==============================================================================
-# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.5)
+# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.6)
+#
+# v2.0.6: the actual root cause of the v2.0.0–v2.0.5 restart loop. The
+# 'cupsd -t' diagnostic added in v2.0.5 finally surfaced it:
+#
+#   File or directory for "TempDir /var/spool/cups/tmp" on line 9 of
+#   /etc/cups/cups-files.conf does not exist.
+#
+# cups-files.conf points TempDir at /var/spool/cups/tmp, which is the
+# symlinked PERSIST_SPOOL. The script created PERSIST_SPOOL but never
+# the 'tmp' subdir inside it, and CUPS 2.4 refuses to start cupsd if
+# TempDir is missing. Fix: mkdir + chown lp:lp + chmod 1770 the tmp dir
+# at boot. All the v2.0.3–v2.0.5 diagnostics are kept — they earned it.
 #
 # v2.0.5: the v2.0.4 logs proved that cupsd dies BEFORE it opens its own
 # ErrorLog (no [CUPSD] lines, only the synthetic "cupsd exited with code 1"
@@ -51,7 +63,7 @@ log_warning() { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 log_error()   { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 log_info "============================================"
-log_info " CUPS Print Server Add-on  v2.0.5"
+log_info " CUPS Print Server Add-on  v2.0.6"
 log_info " Bridged networking, persistent config"
 log_info "============================================"
 
@@ -92,8 +104,12 @@ LEGACY_V1_CONF="${DATA_ROOT}/config"
 LEGACY_V1_SPOOL="${DATA_ROOT}/state/spool"
 
 log_info "Preparing persistent storage in ${DATA_ROOT}"
-mkdir -p "${PERSIST_ETC}" "${PERSIST_SPOOL}" "${PERSIST_CACHE}" \
-         "${PERSIST_LOGS}" "${PERSIST_PPD_EXTRA}"
+# NOTE: ${PERSIST_SPOOL}/tmp must exist on disk — cups-files.conf points
+# TempDir at /var/spool/cups/tmp (which is the symlinked PERSIST_SPOOL),
+# and CUPS 2.4's config validator refuses to start cupsd if TempDir is
+# missing. That was the root cause of the v2.0.0–v2.0.5 restart loop.
+mkdir -p "${PERSIST_ETC}" "${PERSIST_SPOOL}" "${PERSIST_SPOOL}/tmp" \
+         "${PERSIST_CACHE}" "${PERSIST_LOGS}" "${PERSIST_PPD_EXTRA}"
 
 # Optional: nuke persistent config when the user toggles reset_config: true
 if [ "${RESET_CONFIG}" = "true" ]; then
@@ -154,6 +170,9 @@ ln -sfn "${PERSIST_ETC}" /etc/cups
 chown -R root:lp     "${PERSIST_ETC}"   2>/dev/null || true
 chmod -R u+rwX,g+rwX "${PERSIST_ETC}"
 chown -R lp:lp       "${PERSIST_SPOOL}" 2>/dev/null || true
+# TempDir wants sticky-bit world-readable (matches Alpine's default cupsd
+# permissions for /var/spool/cups/tmp).
+chmod 1770           "${PERSIST_SPOOL}/tmp" 2>/dev/null || true
 
 log_info "Persistent storage ready."
 
