@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.9 — Strip obsolete JobSheets, fix CacheDir/LogDir permissions
+
+### Fixed
+- **`Unknown directive JobSheets on line 77 of /etc/cups/cupsd.conf`** on
+  every startup. `JobSheets` was removed from `cupsd.conf` in CUPS 2.4 —
+  it is now a per-printer attribute (`lpadmin -p NAME -o
+  job-sheets-default=none,none`). The template no longer emits it, and
+  the self-heal block strips it from existing `cupsd.conf`.
+- **`[cups-driverd] Unable to write "/var/cache/cups/ppds.dat" -
+  Permission denied`** in the supervisor log. The persistent `CacheDir`
+  (and `LogDir`) were never chowned to `lp:lp`, so the `cups-driverd`
+  process (runs as `lp`) couldn't persist the PPD index and regenerated
+  it from scratch on every "Add Printer" page load. Now chowned at every
+  boot.
+
+### Notes
+- The `org.freedesktop.ColorManager` D-Bus warnings are harmless —
+  cupsd tries to register ICC profiles with `colord`, which is not
+  installed (and not worth pulling in for a print server add-on).
+  These warnings will continue to appear and can be ignored.
+
+---
+
 ## 2.0.8 — Install cups-doc + minimal landing page fallback
 
 ### Fixed

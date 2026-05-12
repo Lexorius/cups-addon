@@ -1,6 +1,16 @@
 #!/bin/bash
 # ==============================================================================
-# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.8)
+# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.9)
+#
+# v2.0.9: housekeeping after the v2.0.8 logs from a working install:
+#   1. 'Unknown directive JobSheets on line 77 of /etc/cups/cupsd.conf' —
+#      JobSheets was removed from cupsd.conf in CUPS 2.4 and is now a
+#      per-printer attribute. The template no longer emits it and the
+#      self-heal block strips it from existing cupsd.conf.
+#   2. '[cups-driverd] Unable to write "/var/cache/cups/ppds.dat" -
+#      Permission denied' — the persistent CacheDir (and LogDir) were
+#      never chowned to lp:lp, so cups-driverd's lp process can't write
+#      the PPD index. Fixed with the existing chown/chmod block.
 #
 # v2.0.8: 'Not Found' on http://<HA-IP>:631/ still happened after v2.0.7
 # because Alpine's main 'cups' package does NOT ship the Web UI HTML at
@@ -77,7 +87,7 @@ log_warning() { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 log_error()   { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 log_info "============================================"
-log_info " CUPS Print Server Add-on  v2.0.8"
+log_info " CUPS Print Server Add-on  v2.0.9"
 log_info " Bridged networking, persistent config"
 log_info "============================================"
 
@@ -187,6 +197,14 @@ chown -R lp:lp       "${PERSIST_SPOOL}" 2>/dev/null || true
 # TempDir wants sticky-bit world-readable (matches Alpine's default cupsd
 # permissions for /var/spool/cups/tmp).
 chmod 1770           "${PERSIST_SPOOL}/tmp" 2>/dev/null || true
+# CacheDir must be writable by cups-driverd (runs as lp). Without this, the
+# PPD database (/var/cache/cups/ppds.dat) cannot be persisted and every
+# 'Add Printer' UI access logs a "Permission denied" warning while
+# regenerating the index from scratch.
+chown -R lp:lp       "${PERSIST_CACHE}" 2>/dev/null || true
+# Log files written by cupsd itself (root) and also tools that run as lp.
+chown -R root:lp     "${PERSIST_LOGS}"  2>/dev/null || true
+chmod -R u+rwX,g+rwX "${PERSIST_LOGS}"  2>/dev/null || true
 
 log_info "Persistent storage ready."
 
@@ -312,7 +330,10 @@ MaxJobsPerUser 50
 </Policy>
 
 DefaultAuthType Basic
-JobSheets none,none
+# JobSheets was removed from cupsd.conf in CUPS 2.4 — it is now a per-printer
+# attribute, set via 'lpadmin -p NAME -o job-sheets-default=none,none'. Keeping
+# the global directive triggers 'Unknown directive JobSheets ...' on every
+# startup and clutters the log.
 CUPSCONF
 }
 
@@ -414,7 +435,14 @@ else
         log_warning "Stripping cups-files.conf-only directives (FileDevice/SystemGroup) from cupsd.conf"
         sed -i -E '/^[[:space:]]*(FileDevice|SystemGroup)[[:space:]]/d' /etc/cups/cupsd.conf
     fi
-    log_info "Existing cupsd.conf kept (LogLevel synced, listen + cups-files-only directives sanity-checked)."
+    # Self-heal: JobSheets was removed from cupsd.conf in CUPS 2.4 and now
+    # logs 'Unknown directive JobSheets' on every startup. The v2.0.0–v2.0.8
+    # templates emitted it; strip it from existing installs too.
+    if grep -qE '^[[:space:]]*JobSheets[[:space:]]' /etc/cups/cupsd.conf; then
+        log_warning "Stripping obsolete 'JobSheets' directive from cupsd.conf"
+        sed -i -E '/^[[:space:]]*JobSheets[[:space:]]/d' /etc/cups/cupsd.conf
+    fi
+    log_info "Existing cupsd.conf kept (LogLevel synced, listen + cups-files-only + obsolete directives sanity-checked)."
 fi
 
 if [ "${FIRST_SEED}" = "true" ] || [ ! -s /etc/cups/cups-files.conf ]; then
