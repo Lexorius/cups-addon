@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.8 — Install cups-doc + minimal landing page fallback
+
+### Fixed
+- **`Not Found` on `http://<HA-IP>:631/` even after v2.0.7.** Repointing
+  DocumentRoot to `/usr/share/cups/doc-root` wasn't enough on Alpine —
+  the main `cups` package doesn't actually ship the Web UI HTML. Those
+  files live in the separate **`cups-doc`** subpackage which we never
+  pulled in. The Dockerfile now installs `cups-doc` (best-effort, like
+  the other driver packages).
+- **Fallback `index.html`.** If `cups-doc` isn't available on a given
+  arch, the boot script writes a tiny landing page at the DocumentRoot
+  that redirects to `/admin`, so `/` no longer 404s under any
+  circumstance.
+
+---
+
 ## 2.0.7 — Fix 'Not Found' on http://<HA-IP>:631/
 
 ### Fixed

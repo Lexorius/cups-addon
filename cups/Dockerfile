@@ -29,7 +29,11 @@ RUN set -eux; \
         nginx \
         usbutils libusb \
         sed grep coreutils findutils \
-        ;
+        ; \
+    # cups-doc ships the Web UI HTML (index.html, help/, images/) under
+    # /usr/share/cups/doc-root. Without it cupsd answers HTTP 404 on '/'.
+    # Treat as optional — older Alpine arches sometimes don't have it.
+    apk add --no-cache cups-doc || echo "WARN: cups-doc not available — script will write a minimal index.html"
 
 # ------------------------------------------------------------------------------
 # Printer drivers — install per-package with graceful fallback so that

@@ -1,6 +1,13 @@
 #!/bin/bash
 # ==============================================================================
-# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.7)
+# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.8)
+#
+# v2.0.8: 'Not Found' on http://<HA-IP>:631/ still happened after v2.0.7
+# because Alpine's main 'cups' package does NOT ship the Web UI HTML at
+# all — those files live in the separate 'cups-doc' subpackage which we
+# never installed. The Dockerfile now installs cups-doc best-effort, and
+# this script writes a minimal landing page (redirecting to /admin) as
+# a fallback for arches where cups-doc isn't built.
 #
 # v2.0.7: Web UI on http://<HA-IP>:631/ returned 'Not Found'. cups-files.conf
 # pointed DocumentRoot at /usr/share/cups/doc, but Alpine's cups package
@@ -70,7 +77,7 @@ log_warning() { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 log_error()   { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 log_info "============================================"
-log_info " CUPS Print Server Add-on  v2.0.7"
+log_info " CUPS Print Server Add-on  v2.0.8"
 log_info " Bridged networking, persistent config"
 log_info "============================================"
 
@@ -310,8 +317,12 @@ CUPSCONF
 }
 
 # Alpine builds CUPS with --with-docdir=/usr/share/cups/doc-root, but
-# upstream CUPS uses /usr/share/cups/doc. Detect at runtime so the Web UI
-# root '/' actually serves index.html instead of returning 'Not Found'.
+# upstream CUPS uses /usr/share/cups/doc. The HTML files (index.html,
+# help/, images/) live in the separate 'cups-doc' subpackage — without
+# it, cupsd answers HTTP 404 on '/'. The Dockerfile now installs cups-doc
+# best-effort; this routine picks the right path and, as a belt-and-
+# suspenders measure, writes a minimal index.html if the chosen dir is
+# missing one (e.g. on an arch where cups-doc isn't built).
 detect_cups_docroot() {
     local d
     for d in /usr/share/cups/doc-root /usr/share/cups/doc; do
@@ -320,7 +331,6 @@ detect_cups_docroot() {
             return
         fi
     done
-    # Fallback: first dir that simply exists
     for d in /usr/share/cups/doc-root /usr/share/cups/doc; do
         if [ -d "${d}" ]; then
             echo "${d}"
@@ -331,6 +341,32 @@ detect_cups_docroot() {
 }
 CUPS_DOCROOT="$(detect_cups_docroot)"
 log_info "CUPS DocumentRoot: ${CUPS_DOCROOT}"
+
+if [ ! -f "${CUPS_DOCROOT}/index.html" ]; then
+    log_warning "${CUPS_DOCROOT}/index.html missing (cups-doc not installed?) — writing minimal landing page"
+    mkdir -p "${CUPS_DOCROOT}"
+    cat > "${CUPS_DOCROOT}/index.html" <<'INDEXHTML'
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CUPS Print Server</title>
+  <meta http-equiv="refresh" content="0; url=/admin">
+  <style>body{font-family:system-ui,sans-serif;max-width:42em;margin:3em auto;padding:0 1em;line-height:1.5}</style>
+</head>
+<body>
+  <h1>CUPS Print Server</h1>
+  <p>The CUPS Web UI is reachable at:</p>
+  <ul>
+    <li><a href="/admin">/admin</a> &mdash; add and manage printers</li>
+    <li><a href="/printers">/printers</a> &mdash; queue status</li>
+    <li><a href="/jobs">/jobs</a> &mdash; active and completed jobs</li>
+  </ul>
+  <p>You are being redirected to <a href="/admin">/admin</a>&hellip;</p>
+</body>
+</html>
+INDEXHTML
+fi
 
 write_default_cups_files_conf() {
     log_info "Writing default cups-files.conf"
