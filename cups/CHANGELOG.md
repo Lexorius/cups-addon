@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.5 — Surface cupsd's stderr (and dry-run validate the config)
+
+### Background
+v2.0.4 made `/var/log/cups/error_log` visible in the supervisor log, but
+the v2.0.4 logs proved cupsd dies *before* it opens that file — the
+loop showed `cupsd exited with code 1` with **zero** `[CUPSD]` lines.
+That means the failure reason was being written to stderr, which the
+script was not capturing.
+
+### Added
+- **`cupsd -t` dry-run validation** before the real launch. Its output is
+  streamed into the supervisor log with a `[CUPSD-TEST]` prefix. If
+  cupsd's config (cupsd.conf or cups-files.conf) is invalid, the exact
+  offending directive and line now show up on every boot, instead of
+  hiding behind exit code 1.
+- **Cupsd stderr capture.** cupsd's stderr is redirected to
+  `/tmp/cupsd.stderr` and tailed back into the supervisor log with a
+  `[CUPSD-STDERR]` prefix. This catches early-init failures (permission
+  denied on the spool dir, port already in use, missing user, …) that
+  occur before the regular ErrorLog file is opened.
+
+---
+
 ## 2.0.4 — Surface cupsd's own error log in the supervisor log
 
 ### Added

@@ -1,6 +1,17 @@
 #!/bin/bash
 # ==============================================================================
-# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.4)
+# Home Assistant CUPS Add-on  —  Main Entrypoint  (v2.0.5)
+#
+# v2.0.5: the v2.0.4 logs proved that cupsd dies BEFORE it opens its own
+# ErrorLog (no [CUPSD] lines, only the synthetic "cupsd exited with code 1"
+# we added). That means the failure reason goes to stderr, which the script
+# wasn't capturing. v2.0.5:
+#   - runs 'cupsd -t' as a dry-run before the real launch and prefixes its
+#     output with [CUPSD-TEST] so the exact bad directive surfaces in the
+#     supervisor log, and
+#   - redirects cupsd's stderr to /tmp/cupsd.stderr and tails that file
+#     with a [CUPSD-STDERR] prefix, so early-init errors (the ones too
+#     early for /var/log/cups/error_log) are no longer invisible.
 #
 # v2.0.4: surfaces cupsd's error log in the supervisor log. v2.0.3 fixed
 # the most obvious config bugs but in some installs cupsd still dies
@@ -40,7 +51,7 @@ log_warning() { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 log_error()   { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 log_info "============================================"
-log_info " CUPS Print Server Add-on  v2.0.4"
+log_info " CUPS Print Server Add-on  v2.0.5"
 log_info " Bridged networking, persistent config"
 log_info "============================================"
 
@@ -503,13 +514,15 @@ verify_listen() {
 # 12. Graceful shutdown
 # ------------------------------------------------------------------------------
 TAIL_PID=""
+TAIL_STDERR_PID=""
 cleanup() {
     log_info "Shutting down…"
     killall -TERM cupsd        2>/dev/null || true
     killall -TERM avahi-daemon 2>/dev/null || true
     killall -TERM dbus-daemon  2>/dev/null || true
     killall -TERM nginx        2>/dev/null || true
-    [ -n "${TAIL_PID}" ] && kill -TERM "${TAIL_PID}" 2>/dev/null || true
+    [ -n "${TAIL_PID}" ]        && kill -TERM "${TAIL_PID}"        2>/dev/null || true
+    [ -n "${TAIL_STDERR_PID}" ] && kill -TERM "${TAIL_STDERR_PID}" 2>/dev/null || true
     sleep 1
     log_info "Bye."
     exit 0
@@ -532,19 +545,45 @@ fi
 
 start_nginx
 
-# Mirror cupsd's own error log into the supervisor log so that fatal startup
-# errors (config syntax, missing dirs, permission issues, …) actually show
-# up where the user can see them. Without this the script reaches "CUPS
-# Print Server is up", cupsd dies a second later, and the supervisor log
-# tells you nothing about WHY — the cause is buried in /var/log/cups/error_log.
+# Dry-run the config FIRST. 'cupsd -t' parses cups-files.conf + cupsd.conf
+# with the same checks the real daemon applies and prints any complaint to
+# stdout/stderr before exiting. In v2.0.4 cupsd died with code 1 inside a
+# second of starting and never wrote to /var/log/cups/error_log, which means
+# the daemon never got far enough to OPEN that file — the cause was on
+# stderr. The dry-run forces the reason into the supervisor log up front.
+log_info "Validating cupsd configuration (dry run: cupsd -t)"
+CUPSD_TEST_RC=0
+CUPSD_TEST_OUT=$(/usr/sbin/cupsd -t 2>&1) || CUPSD_TEST_RC=$?
+if [ -n "${CUPSD_TEST_OUT}" ]; then
+    while IFS= read -r line; do
+        echo "[CUPSD-TEST] ${line}"
+    done <<< "${CUPSD_TEST_OUT}"
+fi
+if [ "${CUPSD_TEST_RC}" -ne 0 ]; then
+    log_error "cupsd configuration is INVALID (cupsd -t returned ${CUPSD_TEST_RC}) — see [CUPSD-TEST] lines above for the offending directive"
+else
+    log_info "cupsd configuration valid"
+fi
+
+# Two log channels to surface anything cupsd says:
+#   1) /var/log/cups/error_log — populated once cupsd's ErrorLog is open
+#   2) /tmp/cupsd.stderr       — captures stderr BEFORE that, i.e. fatal
+#      config / permission errors during initialisation. v2.0.4 missed this
+#      and the user only saw "cupsd exited with code 1" with no reason.
 mkdir -p /var/log/cups
 touch /var/log/cups/error_log
 ( tail -n 0 -F /var/log/cups/error_log 2>/dev/null | \
     while IFS= read -r line; do echo "[CUPSD] ${line}"; done ) &
 TAIL_PID=$!
 
+CUPSD_STDERR=/tmp/cupsd.stderr
+: > "${CUPSD_STDERR}"
+( tail -n 0 -F "${CUPSD_STDERR}" 2>/dev/null | \
+    while IFS= read -r line; do echo "[CUPSD-STDERR] ${line}"; done ) &
+TAIL_STDERR_PID=$!
+
 log_info "Starting cupsd (foreground)"
-/usr/sbin/cupsd -f &
+/usr/sbin/cupsd -f 2>>"${CUPSD_STDERR}" &
 CUPSD_PID=$!
 log_info "cupsd PID: ${CUPSD_PID}"
 
